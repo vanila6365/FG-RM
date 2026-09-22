@@ -1,0 +1,6 @@
+{
+  "name": "FG & RM Quality & Weight Inspection System",
+  "description": "Real-time weight, chemical expiration, and packaging quality inspection system powered by React and Google Sheets database sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
