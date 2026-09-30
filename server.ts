@@ -44,6 +44,12 @@ async function createServer() {
         } catch {
           // If response contains HTML login or error page, give descriptive error
           if (text.includes('<!DOCTYPE html>') || text.includes('<html') || text.includes('Google Accounts')) {
+            if (text.includes('does not exist') || text.includes('file you have requested') || response.status === 404) {
+              return res.status(404).json({
+                success: false,
+                message: 'ลิงก์เว็บแอปนี้ไม่มีอยู่จริงบน Google (Google 404: File not found) ลิงก์นี้อาจถูกลบไปแล้ว หรือตัวอักษรของลิงก์คัดลอกมาไม่ครบถ้วน กรุณาเปิด Google Sheets เพื่อสร้างการ Deploy (การทำให้ใช้งานได้) ตัวใหม่ แล้วคัดลอกลิงก์ที่ได้รับมาวางใหม่อีกครั้งค่ะ'
+              });
+            }
             return res.status(400).json({
               success: false,
               message: 'Google Apps Script returned an HTML page (likely a Google Account Login or Authorization requirement) instead of JSON data. Please verify your script deployment settings (Execute as: Me, Who has access: Anyone) or try redeploying.'
