@@ -202,14 +202,65 @@ export interface FetchResult {
   masterData: MasterData;
 }
 
+// Helper to perform fetch with server proxy fallback for bypassing CORS or client "Load failed" errors
+async function smartFetch(url: string, options?: { method?: string; body?: string }): Promise<any> {
+  try {
+    const isPost = options?.method === 'POST';
+    const directRes = await fetch(url, {
+      method: options?.method || 'GET',
+      headers: isPost ? {
+        'Content-Type': 'text/plain;charset=utf-8' // CORS friendly Content-Type for Apps Script
+      } : undefined,
+      body: options?.body,
+    });
+    
+    if (directRes.ok) {
+      const json = await directRes.json();
+      return json;
+    }
+    
+    throw new Error(`Direct fetch status: ${directRes.status}`);
+  } catch (clientError: any) {
+    console.warn('Direct fetch failed. Attempting to fetch through server proxy...', clientError);
+    
+    try {
+      const proxyRes = await fetch('/api/proxy-sheets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url,
+          method: options?.method || 'GET',
+          data: options?.body ? JSON.parse(options.body) : undefined,
+        }),
+      });
+
+      if (!proxyRes.ok) {
+        const errorText = await proxyRes.text();
+        try {
+          const errJson = JSON.parse(errorText);
+          throw new Error(errJson.message || `Proxy server returned status ${proxyRes.status}`);
+        } catch {
+          throw new Error(`Proxy server returned status ${proxyRes.status}: ${errorText}`);
+        }
+      }
+
+      const json = await proxyRes.json();
+      return json;
+    } catch (proxyError: any) {
+      console.error('Proxy fetch also failed:', proxyError);
+      throw new Error(proxyError.message || 'Connection test failed: Load failed');
+    }
+  }
+}
+
 // Load All Data from Sheets API or Fallback Local Storage
 export async function fetchAllData(): Promise<FetchResult> {
   const url = getAppsScriptUrl();
   if (url) {
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Fetch from Google Sheets failed with status ' + res.status);
-      const result = await res.json();
+      const result = await smartFetch(url);
       if (result.success) {
         // Read current local storage first to prevent accidental wipes when connecting to a blank sheet
         const localPkgs = sanitizeRecords<PackagingInspection>(getLocal<PackagingInspection[]>(KEYS.PACKAGING, []), 'pkg');
@@ -296,15 +347,10 @@ export async function writeRecord(
   const url = getAppsScriptUrl();
   if (url) {
     try {
-      const response = await fetch(url, {
+      const result = await smartFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8' // Standard CORS-friendly request for Google Apps Script Web Apps
-        },
         body: JSON.stringify({ action, sheetName, data })
       });
-      if (!response.ok) throw new Error('HTTP Error: ' + response.status);
-      const result = await response.json();
       if (result.success) {
         return { 
           success: true, 

@@ -225,10 +225,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setIsSyncing(true);
     setConnectionError(null);
     try {
-      // Test URL connection
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Status: ' + res.status);
-      const json = await res.json();
+      // Test URL connection with direct fetch first, fallback to proxy
+      let json;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Status: ' + res.status);
+        json = await res.json();
+      } catch (directErr: any) {
+        console.warn('Direct connection test failed, trying server-side proxy...', directErr);
+        const proxyRes = await fetch('/api/proxy-sheets', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ url, method: 'GET' }),
+        });
+        
+        if (!proxyRes.ok) {
+          const errText = await proxyRes.text();
+          try {
+            const errJson = JSON.parse(errText);
+            throw new Error(errJson.message || `Proxy server returned status ${proxyRes.status}`);
+          } catch {
+            throw new Error(`Proxy server returned status ${proxyRes.status}: ${errText}`);
+          }
+        }
+        
+        json = await proxyRes.json();
+      }
+
       if (json.success) {
         setAppsScriptUrl(url);
         setUrlState(url);

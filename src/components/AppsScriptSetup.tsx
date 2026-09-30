@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { HelpCircle, Database, CheckCircle, Copy, Link, ShieldCheck, HelpCircle as HelpIcon, Lock, ClipboardCheck, Unlink, AlertCircle, UploadCloud } from 'lucide-react';
 
 export function AppsScriptSetup() {
-  const { appsScriptUrl, updateAppsScript, isConnected, disconnectSheets, isSyncing, uploadLocalDataToSheets } = useApp();
+  const { appsScriptUrl, updateAppsScript, isConnected, disconnectSheets, isSyncing, uploadLocalDataToSheets, connectionError } = useApp();
   const [urlInput, setUrlInput] = useState(appsScriptUrl || '');
   const [copied, setCachedCopied] = useState(false);
   const [connectError, setConnectError] = useState(false);
@@ -745,14 +745,118 @@ function updateAndExtractMasterData(ss) {
               />
             </div>
 
-            {connectError && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start space-x-2 text-xs text-red-800">
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
-                <span>
-                  ไม่สามารถตรวจสอบลิงก์ดังกล่าวได้ กรุณาตรวจสอบว่าเลือก Deploy เป็น Web App, Execute as "Me", และ Everyone is enabled หรือไม่
-                </span>
-              </div>
-            )}
+            {connectError && (() => {
+              const isSpreadsheetUrl = urlInput.toLowerCase().includes('docs.google.com/spreadsheets');
+              const isInvalidUrlFormat = !urlInput.trim().toLowerCase().includes('/exec');
+              const isMultiLoginOrCors = connectionError && (
+                connectionError.toLowerCase().includes('failed to fetch') || 
+                connectionError.toLowerCase().includes('cors') ||
+                connectionError.toLowerCase().includes('networkerror')
+              );
+              const isHtmlResponse = connectionError && (
+                connectionError.toLowerCase().includes('unexpected token') || 
+                connectionError.toLowerCase().includes('json') || 
+                connectionError.toLowerCase().includes('parse')
+              );
+
+              return (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3 text-xs text-red-900 shadow-xs">
+                  <div className="flex items-start space-x-2">
+                    <AlertCircle className="w-4.5 h-4.5 shrink-0 text-red-600 mt-0.5" />
+                    <div>
+                      <h4 className="font-extrabold text-red-950 text-xs sm:text-sm">เชื่อมต่อไม่สำเร็จ!</h4>
+                      <p className="mt-0.5 text-red-800 font-sans leading-relaxed">
+                        ระบบตรวจพบบางอย่างผิดปกติในการตั้งค่าหรือการเชื่อมต่อกับ Google Apps Script ของคุณ
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 1. Case: Google Spreadsheet Link Pasted */}
+                  {isSpreadsheetUrl && (
+                    <div className="bg-white/85 border border-red-200 rounded-lg p-3 space-y-1.5">
+                      <span className="font-extrabold text-amber-800 flex items-center gap-1 text-[11px]">
+                        ⚠️ สาเหตุหลักที่พบ: วางลิงก์ผิดประเภท
+                      </span>
+                      <p className="text-slate-600 leading-relaxed font-sans">
+                        คุณได้นำลิงก์ <strong>Google Spreadsheet (แผ่นงานสเปรดชีต)</strong> มาวางแทนที่ลิงก์ Web App!
+                      </p>
+                      <p className="text-slate-600 leading-relaxed font-sans font-bold">
+                        วิธีแก้ไข:
+                      </p>
+                      <ol className="list-decimal pl-4 space-y-1 text-slate-600 font-sans">
+                        <li>กรุณาเปิดหน้า Google Sheets ของคุณ</li>
+                        <li>คลิกเมนู <strong>ส่วนขยาย (Extensions)</strong> &gt; <strong>Apps Script</strong></li>
+                        <li>ที่มุมบนขวา คลิกปุ่ม <strong>การทำให้ใช้งานได้ (Deploy)</strong> &gt; <strong>จัดการการทำให้ใช้งานได้</strong> (หรือการทำให้ใช้งานได้ใหม่)</li>
+                        <li>คัดลอกลิงก์ <strong>URL เว็บแอป (Web App URL)</strong> ที่ลงท้ายด้วย <code className="bg-slate-100 px-1 py-0.5 rounded font-mono font-bold text-slate-800">/exec</code></li>
+                        <li>นำลิงก์ดังกล่าวมาวางในช่องด้านบนนี้เพื่อทำการเชื่อมต่อค่ะ</li>
+                      </ol>
+                    </div>
+                  )}
+
+                  {/* 2. Case: Invalid URL Format */}
+                  {!isSpreadsheetUrl && isInvalidUrlFormat && (
+                    <div className="bg-white/85 border border-red-200 rounded-lg p-3 space-y-1.5">
+                      <span className="font-extrabold text-amber-800 flex items-center gap-1 text-[11px]">
+                        ⚠️ รูปแบบลิงก์ไม่ถูกต้อง
+                      </span>
+                      <p className="text-slate-600 leading-relaxed font-sans">
+                        ลิงก์ที่คุณป้อนไม่พบคีย์เวิร์ด <code className="bg-slate-100 px-1 py-0.5 rounded font-mono font-bold text-slate-800">/exec</code> ซึ่งเป็นรูปแบบมาตรฐานของเว็บแอป Apps Script
+                      </p>
+                      <p className="text-slate-500 text-[11px] font-sans">
+                        ตัวอย่างลิงก์ที่ถูกต้อง: <code className="break-all text-[10px] font-mono block bg-slate-50 p-1 rounded mt-1 text-slate-700">https://script.google.com/macros/s/.../exec</code>
+                      </p>
+                    </div>
+                  )}
+
+                  {/* 3. Case: Multi-login / CORS Failure */}
+                  {isMultiLoginOrCors && (
+                    <div className="bg-white/85 border border-red-200 rounded-lg p-3 space-y-1.5">
+                      <span className="font-extrabold text-blue-800 flex items-center gap-1 text-[11px]">
+                        💡 ข้อจำกัดการเชื่อมต่อ Google (Multi-account collision)
+                      </span>
+                      <p className="text-slate-600 leading-relaxed font-sans">
+                        หากเบราว์เซอร์ของคุณล็อกอินบัญชี Google พร้อมกันหลายบัญชี Google จะบล็อกการดึงข้อมูลสคริปต์ข้ามระบบ (CORS Block) ทำให้เกิดความผิดพลาดในการเรียกใช้เว็บแอป
+                      </p>
+                      <p className="text-slate-600 leading-relaxed font-sans font-bold">
+                        วิธีแก้ไขอย่างง่าย:
+                      </p>
+                      <ul className="list-disc pl-4 space-y-1 text-slate-600 font-sans">
+                        <li><strong>เปิดแท็บใหม่แบบไม่ระบุตัวตน (Incognito Mode / Private Tab)</strong> จากนั้นเข้าสู่ระบบเว็บนี้ และเปิดเชื่อมต่อสคริปต์ใหม่อีกครั้ง</li>
+                        <li>หรือ ออกจากระบบ (Log out) บัญชี Google อื่นๆ ในเบราว์เซอร์นี้ให้หมด และเหลือเพียงบัญชีหลักบัญชีเดียว</li>
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* 4. Case: HTML login page or JSON parse error */}
+                  {isHtmlResponse && (
+                    <div className="bg-white/85 border border-red-200 rounded-lg p-3 space-y-1.5">
+                      <span className="font-extrabold text-red-800 flex items-center gap-1 text-[11px]">
+                        ⚠️ การคืนค่าผิดพลาด (สคริปต์คืนหน้าจอเข้าสู่ระบบแทนข้อมูล)
+                      </span>
+                      <p className="text-slate-600 leading-relaxed font-sans">
+                        ระบบได้รับหน้า HTML หรือหน้าล็อกอิน แทนที่จะเป็นข้อมูลสเปรดชีต ซึ่งมักเกิดจากการตั้งค่าสิทธิ์ผู้เข้าใช้งานสคริปต์ใน Google Sheets ไม่สมบูรณ์
+                      </p>
+                      <p className="text-slate-600 leading-relaxed font-sans font-bold">
+                        กรุณาตรวจสอบการตั้งค่า Deploy ในหน้าต่าง Apps Script:
+                      </p>
+                      <ul className="list-disc pl-4 space-y-1 text-slate-600 font-sans">
+                        <li><strong>เรียกใช้ในฐานะ (Execute as):</strong> ต้องเลือกเป็น <span className="font-bold">"ฉัน" (Me - อีเมลของคุณ)</span> เท่านั้น</li>
+                        <li><strong>ผู้มีสิทธิ์เข้าถึง (Who has access):</strong> ต้องเลือกเป็น <span className="font-bold">"ทุกคน" (Anyone)</span> เท่านั้น (เพื่ออนุญาตให้เว็บเชื่อมต่อแบบปลอดภัยได้)</li>
+                        <li>เมื่อแก้ไขเสร็จ ให้กด Deploy &gt; เลือก Manage Deployments &gt; กดไอคอนแก้ไข (รูปดินสอ) &gt; เลือก Version เป็น <strong>"เวอร์ชันใหม่" (New version)</strong> เสมอแล้วกด Deploy อีกครั้งเพื่อบันทึก</li>
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* 5. General / Advanced troubleshooting */}
+                  <div className="pt-1.5 border-t border-red-150 text-[11px] text-red-700 font-mono flex flex-col gap-1">
+                    <span className="font-bold">ข้อความขัดข้องทางเทคนิค (Technical Error):</span>
+                    <span className="bg-red-100/50 p-1.5 rounded font-mono text-[10px] break-all text-red-800">
+                      {connectionError || 'ตรวจไม่พบสาเหตุที่ระบุได้แน่ชัด (Network failure or invalid CORS response)'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {connectSuccess && (
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-start space-x-2 text-xs text-emerald-800">
