@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Shield, ShieldCheck, Database, RefreshCw, LogOut, HardDriveDownload } from 'lucide-react';
+import { Shield, ShieldCheck, Database, RefreshCw, LogOut, HardDriveDownload, ExternalLink } from 'lucide-react';
 
 export function Header() {
   const { 
     userRole, 
     isSyncing, 
     isConnected, 
+    connectionType,
+    googleUser,
+    googleSpreadsheetId,
     logoutAdmin, 
     loginAsAdmin, 
     refreshData 
@@ -44,9 +47,27 @@ export function Header() {
               <div className="flex items-center space-x-2 mt-0.5">
                 <span className="text-xs text-slate-500 font-medium">โรงงานตรวจสอบคุณภาพ</span>
                 {isConnected ? (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 animate-pulse">
-                    <Database className="w-2.5 h-2.5 mr-1" /> Google Sheet
-                  </span>
+                  connectionType === 'direct' ? (
+                    <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span>Google Sheet (เชื่อมต่อตรง)</span>
+                      {googleSpreadsheetId && (
+                        <a
+                          href={`https://docs.google.com/spreadsheets/d/${googleSpreadsheetId}/edit`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="hover:text-emerald-900 ml-0.5 inline-flex items-center"
+                          title="เปิดดูสเปรดชีตในแท็บใหม่"
+                        >
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 animate-pulse">
+                      <Database className="w-2.5 h-2.5 mr-1" /> Apps Script
+                    </span>
+                  )
                 ) : (
                   <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                     <HardDriveDownload className="w-2.5 h-2.5 mr-1" /> Local Database
@@ -58,6 +79,21 @@ export function Header() {
 
           {/* Right Actions */}
           <div className="flex items-center space-x-3">
+            {googleUser && (
+              <div className="hidden sm:flex items-center space-x-1.5 px-2 py-1 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700">
+                {googleUser.photoURL ? (
+                  <img src={googleUser.photoURL} alt={googleUser.displayName || 'User'} className="w-4 h-4 rounded-full" />
+                ) : (
+                  <div className="w-4 h-4 rounded-full bg-blue-600 text-[9px] text-white flex items-center justify-center font-bold">
+                    {(googleUser.email || 'G')[0].toUpperCase()}
+                  </div>
+                )}
+                <span className="max-w-[120px] truncate text-[11px] font-medium" title={googleUser.email || ''}>
+                  {googleUser.displayName || googleUser.email}
+                </span>
+              </div>
+            )}
+
             {/* Sync button */}
             <button 
               onClick={refreshData}

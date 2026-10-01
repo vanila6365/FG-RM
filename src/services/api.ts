@@ -14,6 +14,14 @@ import {
   INITIAL_EXP_DATE, 
   INITIAL_MASTER_DATA 
 } from '../data/mockData';
+import {
+  getStoredSpreadsheetId,
+  fetchAllFromGoogleSheets,
+  writeToGoogleSheets,
+  setStoredSpreadsheetId,
+  clearStoredSpreadsheetId
+} from './googleSheetsApi';
+import { getAccessToken } from './auth';
 
 // Get Google Apps Script URL from local storage or environment variables
 export function getAppsScriptUrl(): string {
@@ -36,9 +44,15 @@ export function clearAppsScriptUrl() {
   }
 }
 
-// Check if Apps Script is connected
+// Check if Apps Script or Direct Google Sheets is connected
 export function isConnectedToSheets(): boolean {
-  return !!getAppsScriptUrl();
+  return !!getStoredSpreadsheetId() || !!getAppsScriptUrl();
+}
+
+export function getConnectionType(): 'direct' | 'appscript' | 'local' {
+  if (getStoredSpreadsheetId()) return 'direct';
+  if (getAppsScriptUrl()) return 'appscript';
+  return 'local';
 }
 
 // Fallback Local Storage Storage Key Constants
@@ -258,8 +272,43 @@ async function smartFetch(url: string, options?: { method?: string; body?: strin
   }
 }
 
-// Load All Data from Sheets API or Fallback Local Storage
+// Load All Data from Google Sheets API, Apps Script Web App, or Fallback Local Storage
 export async function fetchAllData(): Promise<FetchResult> {
+  const directSheetId = getStoredSpreadsheetId();
+
+  // 1. Direct Google Sheets API mode
+  if (directSheetId) {
+    try {
+      const result = await fetchAllFromGoogleSheets(directSheetId);
+      const sanitizedPackaging = sanitizeRecords<PackagingInspection>(result.packaging || [], 'pkg');
+      const sanitizedFgWeight = sanitizeRecords<FGWeightCheck>(result.fgWeight || [], 'fgw');
+      const sanitizedRmReceiving = sanitizeRecords<RawMaterialReceiving>(result.rmReceiving || [], 'rmr');
+      const sanitizedRmWeight = sanitizeRecords<RMWeightCheck>(result.rmWeight || [], 'rmw');
+      const sanitizedExpDate = sanitizeRecords<ExpDateRecord>(result.expDate || [], 'exp');
+
+      // Cache locally
+      saveLocal(KEYS.PACKAGING, sanitizedPackaging);
+      saveLocal(KEYS.FG_WEIGHT, sanitizedFgWeight);
+      saveLocal(KEYS.RM_RECEIVING, sanitizedRmReceiving);
+      saveLocal(KEYS.RM_WEIGHT, sanitizedRmWeight);
+      saveLocal(KEYS.EXP_DATE, sanitizedExpDate);
+      saveLocal(KEYS.MASTER_DATA, result.masterData || INITIAL_MASTER_DATA);
+
+      return {
+        packaging: sanitizedPackaging,
+        fgWeight: sanitizedFgWeight,
+        rmReceiving: sanitizedRmReceiving,
+        rmWeight: sanitizedRmWeight,
+        expDate: sanitizedExpDate,
+        masterData: result.masterData || INITIAL_MASTER_DATA
+      };
+    } catch (error: any) {
+      console.warn('Direct Google Sheets loading failed. Falling back to local storage cache.', error);
+      throw error;
+    }
+  }
+
+  // 2. Apps Script Web App mode
   const url = getAppsScriptUrl();
   if (url) {
     try {
@@ -329,7 +378,7 @@ export async function fetchAllData(): Promise<FetchResult> {
     }
   }
 
-  // Fallback to local storage
+  // 3. Fallback to local storage
   initLocalData();
   return {
     packaging: sanitizeRecords<PackagingInspection>(getLocal<PackagingInspection[]>(KEYS.PACKAGING, INITIAL_PACKAGING), 'pkg'),
@@ -341,12 +390,56 @@ export async function fetchAllData(): Promise<FetchResult> {
   };
 }
 
-// Write operation to Sheets Web App or Local Storage Fallback
+// Write operation to Google Sheets API, Apps Script Web App, or Local Storage Fallback
 export async function writeRecord(
   action: 'create' | 'update' | 'delete',
   sheetName: 'Packaging_Inspection' | 'FG_Weight_Check' | 'Raw_Material_Receiving' | 'RM_Weight_Check' | 'Exp_Date',
   data: any
 ): Promise<{ success: boolean; message: string; masterData?: MasterData }> {
+  const directSheetId = getStoredSpreadsheetId();
+
+  // 1. Direct Google Sheets API mode
+  if (directSheetId) {
+    try {
+      const res = await writeToGoogleSheets(directSheetId, action, sheetName, data);
+      
+      // Update local storage copy
+      let localKey = '';
+      if (sheetName === 'Packaging_Inspection') localKey = KEYS.PACKAGING;
+      else if (sheetName === 'FG_Weight_Check') localKey = KEYS.FG_WEIGHT;
+      else if (sheetName === 'Raw_Material_Receiving') localKey = KEYS.RM_RECEIVING;
+      else if (sheetName === 'RM_Weight_Check') localKey = KEYS.RM_WEIGHT;
+      else if (sheetName === 'Exp_Date') localKey = KEYS.EXP_DATE;
+
+      const records = getLocal<any[]>(localKey, []);
+      if (action === 'create') {
+        const existingIdx = records.findIndex(r => r.id === data.id);
+        if (existingIdx !== -1) records[existingIdx] = data;
+        else records.push(data);
+      } else if (action === 'update') {
+        const idx = records.findIndex(r => r.id === data.id);
+        if (idx !== -1) records[idx] = data;
+        else records.push(data);
+      } else if (action === 'delete') {
+        const idx = records.findIndex(r => r.id === data.id);
+        if (idx !== -1) records.splice(idx, 1);
+      }
+      saveLocal(localKey, records);
+      const updatedMaster = extractAndSaveLocalMaster();
+
+      return {
+        success: res.success,
+        message: res.message,
+        masterData: updatedMaster
+      };
+    } catch (error: any) {
+      console.error('Direct Google Sheets write failed. Fallback to local storage.', error);
+      // Fallback save to local so user doesn't lose work
+      return { success: false, message: 'Google Sheets sync failed: ' + error.message };
+    }
+  }
+
+  // 2. Apps Script mode
   const url = getAppsScriptUrl();
   if (url) {
     try {
@@ -383,7 +476,7 @@ export async function writeRecord(
     }
   }
 
-  // Fallback Local CRUD
+  // 3. Fallback Local CRUD
   let localKey = '';
   if (sheetName === 'Packaging_Inspection') localKey = KEYS.PACKAGING;
   else if (sheetName === 'FG_Weight_Check') localKey = KEYS.FG_WEIGHT;

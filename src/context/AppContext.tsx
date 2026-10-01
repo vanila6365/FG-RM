@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { User } from 'firebase/auth';
 import { 
   PackagingInspection, 
   FGWeightCheck, 
@@ -15,8 +16,23 @@ import {
   getAppsScriptUrl, 
   setAppsScriptUrl, 
   isConnectedToSheets, 
-  clearAppsScriptUrl 
+  clearAppsScriptUrl,
+  getConnectionType
 } from '../services/api';
+import { 
+  googleSignIn, 
+  logout as googleLogout, 
+  initAuth, 
+  getAccessToken 
+} from '../services/auth';
+import { 
+  getStoredSpreadsheetId, 
+  setStoredSpreadsheetId, 
+  clearStoredSpreadsheetId, 
+  extractSpreadsheetId, 
+  createNewSpreadsheet, 
+  batchUploadToGoogleSheets 
+} from '../services/googleSheetsApi';
 
 export interface AppNotification {
   type: 'success' | 'confirm';
@@ -31,8 +47,21 @@ interface AppContextType {
   setActiveTab: (tab: ActiveTab) => void;
   isSyncing: boolean;
   isConnected: boolean;
+  connectionType: 'direct' | 'appscript' | 'local';
+  
+  // Google Account & Direct Sheets (No Script needed)
+  googleUser: User | null;
+  googleAccessToken: string | null;
+  googleSpreadsheetId: string;
+  signInWithGoogle: () => Promise<boolean>;
+  signOutGoogle: () => Promise<void>;
+  connectGoogleSpreadsheet: (idOrUrl: string) => Promise<boolean>;
+  createAndConnectNewSpreadsheet: (title?: string) => Promise<{ spreadsheetId: string; url: string }>;
+
+  // Legacy Apps Script
   appsScriptUrl: string;
   updateAppsScript: (url: string) => Promise<boolean>;
+  
   disconnectSheets: () => void;
   loginAsAdmin: (pin: string) => boolean;
   logoutAdmin: () => void;
@@ -94,6 +123,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [appsScriptUrl, setUrlState] = useState<string>('');
+  const [googleSpreadsheetId, setGoogleSpreadsheetIdState] = useState<string>('');
+  const [googleUser, setGoogleUser] = useState<User | null>(null);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+  const [connectionType, setConnectionType] = useState<'direct' | 'appscript' | 'local'>('local');
+
   const [notification, setNotification] = useState<AppNotification | null>(null);
   const [fgWeightFilterPendingOnly, setFgWeightFilterPendingOnly] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -158,13 +192,153 @@ export function AppProvider({ children }: { children: ReactNode }) {
     suppliers: []
   });
 
-  // Load configuration and data on startup
+  // Load configuration and auth on startup
   useEffect(() => {
-    const url = getAppsScriptUrl();
-    setUrlState(url);
-    setIsConnected(!!url);
+    // 1. Listen for Google Auth state
+    const unsubscribeAuth = initAuth(
+      (user, token) => {
+        setGoogleUser(user);
+        if (token) setGoogleAccessToken(token);
+      },
+      () => {
+        setGoogleUser(null);
+        setGoogleAccessToken(null);
+      }
+    );
+
+    // 2. Load stored connection configuration
+    const storedSheetId = getStoredSpreadsheetId();
+    const storedAppsUrl = getAppsScriptUrl();
+
+    setGoogleSpreadsheetIdState(storedSheetId);
+    setUrlState(storedAppsUrl);
+
+    if (storedSheetId) {
+      setConnectionType('direct');
+      setIsConnected(true);
+    } else if (storedAppsUrl) {
+      setConnectionType('appscript');
+      setIsConnected(true);
+    } else {
+      setConnectionType('local');
+      setIsConnected(false);
+    }
+
     refreshData();
+
+    return () => {
+      if (unsubscribeAuth) unsubscribeAuth();
+    };
   }, []);
+
+  const signInWithGoogle = async (): Promise<boolean> => {
+    try {
+      const res = await googleSignIn();
+      if (res) {
+        setGoogleUser(res.user);
+        setGoogleAccessToken(res.accessToken);
+        triggerSuccess(`ลงชื่อเข้าใช้ด้วย Google สำเร็จ: ${res.user.email}`);
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      console.error('Google Sign In error:', err);
+      setConnectionError(err.message || 'การลงชื่อเข้าใช้ Google ไม่สำเร็จ');
+      return false;
+    }
+  };
+
+  const signOutGoogle = async () => {
+    await googleLogout();
+    setGoogleUser(null);
+    setGoogleAccessToken(null);
+    triggerSuccess('ออกจากระบบ Google เรียบร้อยแล้ว');
+  };
+
+  const connectGoogleSpreadsheet = async (idOrUrl: string): Promise<boolean> => {
+    const sheetId = extractSpreadsheetId(idOrUrl);
+    if (!sheetId) {
+      setConnectionError('กรุณาระบุลิงก์ Google Sheets หรือ ID สเปรดชีตที่ถูกต้อง');
+      return false;
+    }
+
+    const token = await getAccessToken();
+    if (!token) {
+      setConnectionError('กรุณาคลิกลงชื่อเข้าใช้ Google ก่อน เพื่อให้ระบบเข้าถึง Google Sheets ได้');
+      return false;
+    }
+
+    setIsSyncing(true);
+    setConnectionError(null);
+    try {
+      setStoredSpreadsheetId(sheetId);
+      setGoogleSpreadsheetIdState(sheetId);
+      setConnectionType('direct');
+
+      // Attempt to load and verify
+      const data = await fetchAllData();
+      setPackagingRecords(data.packaging);
+      setFgWeightRecords(data.fgWeight);
+      setRmReceivingRecords(data.rmReceiving);
+      setRMWeightRecords(data.rmWeight);
+      setExpDateRecords(data.expDate);
+      setMasterData(getMergedMasterData(data.masterData));
+
+      setIsConnected(true);
+      triggerSuccess('เชื่อมต่อกับ Google Sheet โดยตรงสำเร็จเรียบร้อยแล้วค่ะ!');
+      return true;
+    } catch (err: any) {
+      console.error('Connect Google Sheet failed:', err);
+      setConnectionError(err.message || 'ไม่สามารถเชื่อมต่อกับ Google Sheet นี้ได้');
+      clearStoredSpreadsheetId();
+      setGoogleSpreadsheetIdState('');
+      setConnectionType(appsScriptUrl ? 'appscript' : 'local');
+      setIsConnected(!!appsScriptUrl);
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const createAndConnectNewSpreadsheet = async (title?: string): Promise<{ spreadsheetId: string; url: string }> => {
+    const token = await getAccessToken();
+    if (!token) {
+      throw new Error('กรุณาคลิกลงชื่อเข้าใช้ Google ก่อน เพื่อให้ระบบสร้างไฟล์ใน Google Drive ของคุณได้');
+    }
+
+    setIsSyncing(true);
+    setConnectionError(null);
+    try {
+      const created = await createNewSpreadsheet(title || 'ระบบตรวจสอบชิ้นงานและสุ่มชั่ง FG-RM');
+      setStoredSpreadsheetId(created.spreadsheetId);
+      setGoogleSpreadsheetIdState(created.spreadsheetId);
+      setIsConnected(true);
+      setConnectionType('direct');
+
+      // Sync existing records to the new sheet immediately
+      await uploadLocalDataToSheets();
+
+      triggerSuccess('สร้างและเชื่อมต่อ Google Sheet ใหม่ให้คุณสำเร็จเรียบร้อยแล้วค่ะ!');
+      return created;
+    } catch (err: any) {
+      console.error('Create new sheet error:', err);
+      setConnectionError(err.message || 'ไม่สามารถสร้าง Google Sheet ใหม่ได้');
+      throw err;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const disconnectSheets = () => {
+    clearAppsScriptUrl();
+    clearStoredSpreadsheetId();
+    setUrlState('');
+    setGoogleSpreadsheetIdState('');
+    setIsConnected(false);
+    setConnectionType('local');
+    triggerSuccess('ยกเลิกการเชื่อมต่อสเปรดชีตแล้ว กลับสู่โหมดฐานข้อมูลในเครื่อง (Local Mode)');
+    refreshData();
+  };
 
   const getMergedMasterData = (fetchedMaster: MasterData): MasterData => {
     let manualMaster: MasterData = { customers: [], fgCodes: [], rmCodes: [], suppliers: [] };
@@ -315,13 +489,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsSyncing(false);
     }
-  };
-
-  const disconnectSheets = () => {
-    clearAppsScriptUrl();
-    setUrlState('');
-    setIsConnected(false);
-    refreshData(); // Resets back to local data
   };
 
   const loginAsAdmin = (pin: string): boolean => {
@@ -783,10 +950,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const uploadLocalDataToSheets = async (): Promise<{ success: boolean; count: number; message: string }> => {
-    if (!appsScriptUrl) return { success: false, count: 0, message: 'กรุณาเชื่อมต่อ Google Sheets ก่อนส่งข้อมูล' };
     setIsSyncing(true);
     try {
-      // Import defaults directly
       const mock = await import('../data/mockData');
       
       const getLocalWithFallback = (key: string, fb: any) => {
@@ -798,45 +963,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       };
 
-      const pkgs = getLocalWithFallback('fg_rm_inspection_packaging', mock.INITIAL_PACKAGING);
-      const fgWeights = getLocalWithFallback('fg_rm_inspection_fg_weight', mock.INITIAL_FG_WEIGHT);
-      const rmRecs = getLocalWithFallback('fg_rm_inspection_rm_receiving', mock.INITIAL_RM_RECEIVING);
-      const rmWeights = getLocalWithFallback('fg_rm_inspection_rm_weight', mock.INITIAL_RM_WEIGHT);
-      const exps = getLocalWithFallback('fg_rm_inspection_exp_date', mock.INITIAL_EXP_DATE);
+      const pkgs = packagingRecords.length > 0 ? packagingRecords : getLocalWithFallback('fg_rm_inspection_packaging', mock.INITIAL_PACKAGING);
+      const fgWeights = fgWeightRecords.length > 0 ? fgWeightRecords : getLocalWithFallback('fg_rm_inspection_fg_weight', mock.INITIAL_FG_WEIGHT);
+      const rmRecs = rmReceivingRecords.length > 0 ? rmReceivingRecords : getLocalWithFallback('fg_rm_inspection_rm_receiving', mock.INITIAL_RM_RECEIVING);
+      const rmWeights = rmWeightRecords.length > 0 ? rmWeightRecords : getLocalWithFallback('fg_rm_inspection_rm_weight', mock.INITIAL_RM_WEIGHT);
+      const exps = expDateRecords.length > 0 ? expDateRecords : getLocalWithFallback('fg_rm_inspection_exp_date', mock.INITIAL_EXP_DATE);
 
-      const uploadSheet = async (sheetName: string, records: any[]) => {
-        if (records.length === 0) return;
-        try {
-          const response = await fetch(appsScriptUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'batchCreate', sheetName, data: records })
-          });
-          if (!response.ok) throw new Error('Network response was not ok');
-          const resJson = await response.json();
-          if (!resJson.success) {
-            console.warn('batchCreate not supported by current script, falling back to sequential writes');
+      // 1. Direct Google Sheets mode
+      const directId = getStoredSpreadsheetId();
+      if (directId) {
+        const res = await batchUploadToGoogleSheets(directId, {
+          packaging: pkgs,
+          fgWeight: fgWeights,
+          rmReceiving: rmRecs,
+          rmWeight: rmWeights,
+          expDate: exps
+        });
+        await refreshData();
+        return res;
+      }
+
+      // 2. Apps Script mode
+      if (appsScriptUrl) {
+        const uploadSheet = async (sheetName: string, records: any[]) => {
+          if (records.length === 0) return;
+          try {
+            const response = await fetch(appsScriptUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'batchCreate', sheetName, data: records })
+            });
+            if (!response.ok) throw new Error('Network response was not ok');
+            const resJson = await response.json();
+            if (!resJson.success) {
+              for (const rec of records) {
+                await writeRecord('create', sheetName as any, rec);
+              }
+            }
+          } catch (e) {
             for (const rec of records) {
               await writeRecord('create', sheetName as any, rec);
             }
           }
-        } catch (e) {
-          console.warn('Batch upload failed, falling back to sequential writes:', e);
-          for (const rec of records) {
-            await writeRecord('create', sheetName as any, rec);
-          }
-        }
-      };
+        };
 
-      await uploadSheet('Packaging_Inspection', pkgs);
-      await uploadSheet('FG_Weight_Check', fgWeights);
-      await uploadSheet('Raw_Material_Receiving', rmRecs);
-      await uploadSheet('RM_Weight_Check', rmWeights);
-      await uploadSheet('Exp_Date', exps);
+        await uploadSheet('Packaging_Inspection', pkgs);
+        await uploadSheet('FG_Weight_Check', fgWeights);
+        await uploadSheet('Raw_Material_Receiving', rmRecs);
+        await uploadSheet('RM_Weight_Check', rmWeights);
+        await uploadSheet('Exp_Date', exps);
 
-      await refreshData();
-      const totalCount = pkgs.length + fgWeights.length + rmRecs.length + rmWeights.length + exps.length;
-      return { success: true, count: totalCount, message: `อัปโหลดข้อมูลประวัติทั้งหมดสำเร็จเรียบร้อย รวม ${totalCount} รายการ!` };
+        await refreshData();
+        const totalCount = pkgs.length + fgWeights.length + rmRecs.length + rmWeights.length + exps.length;
+        return { success: true, count: totalCount, message: `อัปโหลดข้อมูลประวัติทั้งหมดสำเร็จเรียบร้อย รวม ${totalCount} รายการ!` };
+      }
+
+      return { success: false, count: 0, message: 'กรุณาเชื่อมต่อ Google Sheets ก่อนทำการอัปโหลด' };
     } catch (err: any) {
       console.error('Upload local data failed:', err);
       return { success: false, count: 0, message: 'การอัปโหลดขัดข้อง: ' + err.message };
@@ -852,6 +1034,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActiveTab,
       isSyncing,
       isConnected,
+      connectionType,
+
+      googleUser,
+      googleAccessToken,
+      googleSpreadsheetId,
+      signInWithGoogle,
+      signOutGoogle,
+      connectGoogleSpreadsheet,
+      createAndConnectNewSpreadsheet,
+
       appsScriptUrl,
       updateAppsScript,
       disconnectSheets,
