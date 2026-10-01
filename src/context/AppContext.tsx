@@ -247,6 +247,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const errJson = JSON.parse(errText);
             throw new Error(errJson.message || `Proxy server returned status ${proxyRes.status}`);
           } catch {
+            if (proxyRes.status === 404 && (errText.includes('NOT_FOUND') || errText.includes('The page could not be found') || errText.includes('sin1'))) {
+              throw new Error('ไม่สามารถเข้าถึง Google Apps Script ผ่านลิงก์นี้ได้ ลิงก์อาจถูกลบไปแล้วจาก Google หรือยังไม่ได้ตั้งค่าสิทธิ์ Anyone (ทุกคน)');
+            }
             throw new Error(`Proxy server returned status ${proxyRes.status}: ${errText}`);
           }
         }

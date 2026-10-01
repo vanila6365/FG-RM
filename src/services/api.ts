@@ -242,6 +242,9 @@ async function smartFetch(url: string, options?: { method?: string; body?: strin
           const errJson = JSON.parse(errorText);
           throw new Error(errJson.message || `Proxy server returned status ${proxyRes.status}`);
         } catch {
+          if (proxyRes.status === 404 && (errorText.includes('NOT_FOUND') || errorText.includes('The page could not be found') || errorText.includes('sin1'))) {
+            throw new Error('ไม่สามารถเข้าถึง Google Apps Script ผ่านลิงก์นี้ได้ ลิงก์อาจถูกลบไปแล้วจาก Google หรือยังไม่ได้ตั้งค่าสิทธิ์ Anyone (ทุกคน)');
+          }
           throw new Error(`Proxy server returned status ${proxyRes.status}: ${errorText}`);
         }
       }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { HelpCircle, Database, CheckCircle, Copy, Link, ShieldCheck, HelpCircle as HelpIcon, Lock, ClipboardCheck, Unlink, AlertCircle, UploadCloud } from 'lucide-react';
+import { HelpCircle, Database, CheckCircle, Copy, Link, ShieldCheck, HelpCircle as HelpIcon, Lock, ClipboardCheck, Unlink, AlertCircle, UploadCloud, ExternalLink, Trash2 } from 'lucide-react';
 
 export function AppsScriptSetup() {
   const { appsScriptUrl, updateAppsScript, isConnected, disconnectSheets, isSyncing, uploadLocalDataToSheets, connectionError } = useApp();
@@ -748,12 +748,19 @@ function updateAndExtractMasterData(ss) {
             {connectError && (() => {
               const isSpreadsheetUrl = urlInput.toLowerCase().includes('docs.google.com/spreadsheets');
               const isInvalidUrlFormat = !urlInput.trim().toLowerCase().includes('/exec');
-              const isMultiLoginOrCors = connectionError && (
+              const isDeletedGoogleUrl = urlInput.includes('AKfycbznz-w2uVvEYb493QRb2gXqiwD04BWpw1k1M-wcx5W44Bh_lk4UfG-gmF1JqEN2Z1NF6A') ||
+                (connectionError && (
+                  connectionError.includes('404') || 
+                  connectionError.includes('ไม่มีอยู่จริง') || 
+                  connectionError.includes('NOT_FOUND') || 
+                  connectionError.includes('The page could not be found')
+                ));
+              const isMultiLoginOrCors = !isDeletedGoogleUrl && connectionError && (
                 connectionError.toLowerCase().includes('failed to fetch') || 
                 connectionError.toLowerCase().includes('cors') ||
                 connectionError.toLowerCase().includes('networkerror')
               );
-              const isHtmlResponse = connectionError && (
+              const isHtmlResponse = !isDeletedGoogleUrl && connectionError && (
                 connectionError.toLowerCase().includes('unexpected token') || 
                 connectionError.toLowerCase().includes('json') || 
                 connectionError.toLowerCase().includes('parse')
@@ -771,8 +778,59 @@ function updateAndExtractMasterData(ss) {
                     </div>
                   </div>
 
+                  {/* Case: Dead / Deleted Google Web App URL */}
+                  {isDeletedGoogleUrl && (
+                    <div className="bg-red-100/90 border border-red-300 rounded-xl p-3.5 space-y-2">
+                      <span className="font-extrabold text-red-950 flex items-center gap-1.5 text-xs sm:text-sm">
+                        🚨 ลิงก์นี้ถูกลบไปแล้วบน Google (Google 404: File not found)
+                      </span>
+                      <p className="text-slate-700 leading-relaxed font-sans text-xs">
+                        ลิงก์ที่คุณกำลังกดเชื่อมต่ออยู่ <strong>ไม่มีไฟล์หรือโปรเจกต์นี้อยู่ใน Google อีกต่อไป</strong> (สคริปต์นี้ถูกลบออกจาก Google Drive หรือยกเลิกการ Deploy ไปแล้วค่ะ)
+                      </p>
+                      
+                      <div className="pt-1">
+                        <a
+                          href={urlInput.trim()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center space-x-1.5 py-1.5 px-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold transition shadow-xs"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>คลิกที่นี่เพื่อเปิดดูหน้าเว็บจริงของ Google</span>
+                        </a>
+                        <p className="text-[10px] text-red-700 mt-1">
+                          (เมื่อคุณคลิกเปิด จะเห็นหน้าจอของ Google ขึ้นข้อความเตือนชัดเจนว่า <em>"Sorry, the file you have requested does not exist"</em>)
+                        </p>
+                      </div>
+
+                      <div className="bg-white p-3 rounded-lg border border-red-200 mt-2 space-y-1 text-slate-700 text-xs font-sans">
+                        <span className="font-bold text-red-900 block">วิธีแก้ไขที่ถูกต้อง:</span>
+                        <ol className="list-decimal pl-4 space-y-1">
+                          <li>เปิด Google Sheets ของคุณ</li>
+                          <li>ไปที่เมนู <strong>ส่วนขยาย (Extensions)</strong> &gt; <strong>Apps Script</strong></li>
+                          <li>คลิกปุ่มสีน้ำเงิน <strong>การทำให้ใช้งานได้ (Deploy)</strong> &gt; <strong>การทำให้ใช้งานได้ใหม่ (New deployment)</strong></li>
+                          <li>ตั้งค่า <strong>Who has access: ทุกคน (Anyone)</strong> และ <strong>Execute as: ฉัน (Me)</strong> แล้วกด Deploy</li>
+                          <li>คัดลอกลิงก์ใหม่ที่ได้มา</li>
+                          <li>กดปุ่ม <strong>"ล้างช่องนี้"</strong> ด้านล่าง แล้ววางลิงก์ใหม่ลงไปค่ะ!</li>
+                        </ol>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUrlInput('');
+                          setConnectError(false);
+                        }}
+                        className="inline-flex items-center space-x-1 text-xs text-blue-700 hover:text-blue-900 font-bold underline pt-1"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>ล้างลิงก์เก่าที่เสียออกจากช่องนี้</span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* 1. Case: Google Spreadsheet Link Pasted */}
-                  {isSpreadsheetUrl && (
+                  {!isDeletedGoogleUrl && isSpreadsheetUrl && (
                     <div className="bg-white/85 border border-red-200 rounded-lg p-3 space-y-1.5">
                       <span className="font-extrabold text-amber-800 flex items-center gap-1 text-[11px]">
                         ⚠️ สาเหตุหลักที่พบ: วางลิงก์ผิดประเภท
@@ -794,7 +852,7 @@ function updateAndExtractMasterData(ss) {
                   )}
 
                   {/* 2. Case: Invalid URL Format */}
-                  {!isSpreadsheetUrl && isInvalidUrlFormat && (
+                  {!isDeletedGoogleUrl && !isSpreadsheetUrl && isInvalidUrlFormat && (
                     <div className="bg-white/85 border border-red-200 rounded-lg p-3 space-y-1.5">
                       <span className="font-extrabold text-amber-800 flex items-center gap-1 text-[11px]">
                         ⚠️ รูปแบบลิงก์ไม่ถูกต้อง
