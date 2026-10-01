@@ -54,6 +54,8 @@ export function AppsScriptSetup() {
   const [connectSuccess, setConnectSuccess] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ loading: boolean; success: boolean; count?: number; error?: string } | null>(null);
 
+  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+
   // Handle Google Direct Connect with URL/ID
   const handleDirectConnect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -318,10 +320,36 @@ function initSheets(ss) {
             )}
 
             {/* Step 1: Google Account Authentication */}
-            <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-5 space-y-3">
+            <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-5 space-y-4">
               <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
                 ขั้นตอนที่ 1 : เข้าสู่ระบบด้วย Google
               </span>
+
+              {isInIframe && !googleUser && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3 text-slate-800">
+                  <div className="flex items-start space-x-2.5">
+                    <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-extrabold text-amber-950 text-xs sm:text-sm">⚠️ คำแนะนำสำหรับผู้ใช้งานบน AI Studio</h4>
+                      <p className="text-xs text-amber-800 leading-relaxed mt-0.5">
+                        ระบบตรวจพบว่าคุณกำลังเปิดแอปนี้อยู่ภายใน **Iframe หน้าทดสอบของ AI Studio** ซึ่งเบราว์เซอร์จะบล็อกป๊อปอัปความปลอดภัยและการเชื่อมต่อคุ้กกี้สำหรับการล็อกอินด้วย Google เสมอค่ะ
+                      </p>
+                      <p className="text-xs text-amber-800/90 leading-relaxed mt-1 font-bold">
+                        กรุณากดปุ่มด้านล่างเพื่อเปิดใช้งานแอปในหน้าต่างใหม่ (เต็มหน้าจอ) จากนั้นคุณจะสามารถกดลงชื่อเข้าใช้ Google และใช้งานได้อย่างราบรื่น 100% เลยค่ะ!
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => window.open(window.location.origin, '_blank')}
+                    className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>🌐 เปิดแอปในแท็บใหม่เพื่อล็อกอิน (แนะนำ)</span>
+                  </button>
+                </div>
+              )}
 
               {!googleUser ? (
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-1">
