@@ -1,41 +1,69 @@
 /**
- * Google Apps Script for FG & RM Quality & Weight Inspection System
- * Deploy this script as a "Web App" with the following settings:
- * - Execute as: Me (Your email)
- * - Who has access: Anyone (This allows your React App to fetch it securely)
+ * Google Apps Script for FG & RM Quality & Weight Inspection System (v2.2 - Bulletproof Version)
+ * 
+ * วิธีการตั้งค่า Deployment ในหน้า Apps Script เพื่อให้เพื่อนๆ คีย์ข้อมูลได้โดยไม่ต้องล็อกอิน:
+ * 1. คลิกปุ่ม "การทำให้ใช้งานได้ใหม่" (New Deployment) ทางด้านบนขวา
+ * 2. เลือกประเภทเป็น "เว็บแอป" (Web App)
+ * 3. ตั้งค่าการเข้าถึงดังนี้:
+ *    - Execute as (เรียกใช้ในฐานะ): Me (อีเมลของคุณเอง - เจ้าของชีต)
+ *    - Who has access (ผู้มีสิทธิ์เข้าถึง): Anyone (ทุกคน) <-- สำคัญมาก ห้ามเลือกตัวเลือกอื่น!
+ * 4. กด Deploy และคัดลอกลิงก์เว็บแอปที่ลงท้ายด้วย "/exec" มาใส่ในหน้าต่างตั้งค่าของเว็บแอปค่ะ
  */
 
+// หากใช้ Apps Script แบบสร้างจากภายนอกสเปรดชีต (Standalone) ให้ระบุรหัสสเปรดชีต (Spreadsheet ID) ในเครื่องหมายคำพูดด้านล่างนี้ได้เลยค่ะ 
+// (หากสร้างจากเมนู "ส่วนขยาย > Apps Script" ภายใน Google Sheets อยู่แล้ว สามารถเว้นเป็น "" ได้เลยค่ะ)
+var SPREADSHEET_ID = "";
+
+function getSpreadsheet() {
+  if (typeof SPREADSHEET_ID === "string" && SPREADSHEET_ID.trim() !== "") {
+    try {
+      return SpreadsheetApp.openById(SPREADSHEET_ID.trim());
+    } catch (e) {
+      throw new Error("ไม่สามารถเปิดสเปรดชีตจาก SPREADSHEET_ID ที่ระบุได้ กรุณาตรวจสอบ ID ให้ถูกต้อง หรือตั้งค่าสิทธิ์แชร์ไฟล์เป็น 'ทุกคนที่มีลิงก์' (Anyone with link) ค่ะ: " + e.message);
+    }
+  }
+  
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) return ss;
+  } catch (e) {}
+  
+  throw new Error("ไม่พบสเปรดชีตที่ทำงานร่วมกัน กรุณาระบุ Spreadsheet ID ในส่วนหัวของโค้ดสคริปต์นี้เพื่อแก้ปัญหาค่ะ");
+}
+
 function doGet(e) {
-  var action = e.param ? e.param.action : null;
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // Create sheets if they do not exist
-  initSheets(ss);
-  
-  // Extract and update Master Data before returning
-  var masterData = updateAndExtractMasterData(ss);
-  
-  var responseData = {
-    success: true,
-    packaging: getSheetRecords(ss.getSheetByName("Packaging_Inspection")),
-    fgWeight: getSheetRecords(ss.getSheetByName("FG_Weight_Check")),
-    rmReceiving: getSheetRecords(ss.getSheetByName("Raw_Material_Receiving")),
-    rmWeight: getSheetRecords(ss.getSheetByName("RM_Weight_Check")),
-    expDate: getSheetRecords(ss.getSheetByName("Exp_Date")),
-    masterData: masterData
-  };
-  
-  return ContentService.createTextOutput(JSON.stringify(responseData))
-    .setMimeType(ContentService.MimeType.JSON);
+  try {
+    var ss = getSpreadsheet();
+    initSheets(ss);
+    
+    var masterData = updateAndExtractMasterData(ss);
+    
+    var responseData = {
+      success: true,
+      packaging: getSheetRecords(ss.getSheetByName("Packaging_Inspection")),
+      fgWeight: getSheetRecords(ss.getSheetByName("FG_Weight_Check")),
+      rmReceiving: getSheetRecords(ss.getSheetByName("Raw_Material_Receiving")),
+      rmWeight: getSheetRecords(ss.getSheetByName("RM_Weight_Check")),
+      expDate: getSheetRecords(ss.getSheetByName("Exp_Date")),
+      masterData: masterData
+    };
+    
+    return ContentService.createTextOutput(JSON.stringify(responseData))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      message: error.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 function doPost(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  initSheets(ss);
-  
-  var responseData = { success: false, message: "" };
-  
   try {
+    var ss = getSpreadsheet();
+    initSheets(ss);
+    
+    var responseData = { success: false, message: "" };
     var postData = JSON.parse(e.postData.contents);
     var action = postData.action; // 'create' | 'update' | 'delete' | 'batchCreate'
     var sheetName = postData.sheetName; // 'Packaging_Inspection' | 'FG_Weight_Check' | etc.
@@ -43,7 +71,7 @@ function doPost(e) {
     
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
-      throw new Error("Sheet not found: " + sheetName);
+      throw new Error("ไม่พบแท็บชีตชื่อ: " + sheetName);
     }
     
     if (action === 'create') {
@@ -59,7 +87,7 @@ function doPost(e) {
           sheet.getRange(rowNum, colIdx + 1).setValue(value);
         });
         responseData.success = true;
-        responseData.message = "Record already exists. Updated existing record instead of duplicating.";
+        responseData.message = "แก้ไขข้อมูลซ้ำเรียบร้อยแล้ว (อัปเดตข้อมูลแถวเดิม)";
       } else {
         // Append row
         var headers = getHeaders(sheet);
@@ -68,7 +96,7 @@ function doPost(e) {
         });
         sheet.appendRow(newRowValues);
         responseData.success = true;
-        responseData.message = "Record created successfully";
+        responseData.message = "เพิ่มข้อมูลใหม่ลงในชีตสำเร็จเรียบร้อยแล้วค่ะ";
       }
       
     } else if (action === 'batchCreate') {
@@ -115,14 +143,14 @@ function doPost(e) {
         }
         
         responseData.success = true;
-        responseData.message = "Batch import complete: " + records.length + " records processed.";
+        responseData.message = "ซิงค์อัปเดตประวัติทั้งหมดเรียบร้อย จำนวน: " + records.length + " รายการ";
       } else {
-        throw new Error("Payload for batchCreate must be an array");
+        throw new Error("โครงสร้างข้อมูลในการซิงค์แบบกลุ่มไม่ถูกต้อง");
       }
       
     } else if (action === 'update') {
       var id = payload.id;
-      if (!id) throw new Error("Missing ID for update");
+      if (!id) throw new Error("ไม่พบ ID สำหรับการอัปเดตข้อมูล");
       
       var rowNum = findRowIndexById(sheet, id);
       var headers = getHeaders(sheet);
@@ -134,7 +162,7 @@ function doPost(e) {
         });
         sheet.appendRow(newRowValues);
         responseData.success = true;
-        responseData.message = "Record not found for update. Appended as new record.";
+        responseData.message = "ไม่พบรายการแก้ไข จึงถูกเพิ่มเข้าไปเป็นรายการใหม่เรียบร้อยค่ะ";
       } else {
         headers.forEach(function(header, colIdx) {
           if (header === "id") return; // Keep ID same
@@ -142,12 +170,12 @@ function doPost(e) {
           sheet.getRange(rowNum, colIdx + 1).setValue(value);
         });
         responseData.success = true;
-        responseData.message = "Record updated successfully";
+        responseData.message = "แก้ไขข้อมูลแถวสำเร็จเรียบร้อยค่ะ";
       }
       
     } else if (action === 'delete') {
       var id = payload.id;
-      if (!id) throw new Error("Missing ID for deletion");
+      if (!id) throw new Error("ไม่พบ ID สำหรับการลบข้อมูล");
       
       var data = sheet.getDataRange().getValues();
       var headers = data[0];
@@ -166,23 +194,21 @@ function doPost(e) {
       }
       
       responseData.success = true;
-      responseData.message = deletedCount > 0 
-        ? "Deleted " + deletedCount + " matching record(s)" 
-        : "Record already deleted or not found in sheet";
+      responseData.message = "ลบรายการออกจากสเปรดชีตสำเร็จค่ะ (จำนวน: " + deletedCount + " แถว)";
     }
     
     // Auto update and extract Master Data on any change
     var masterData = updateAndExtractMasterData(ss);
     responseData.masterData = masterData;
     
+    return ContentService.createTextOutput(JSON.stringify(responseData))
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
-    responseData.success = false;
-    responseData.message = error.toString();
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      message: error.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
   }
-  
-  // Return response with CORS handling
-  return ContentService.createTextOutput(JSON.stringify(responseData))
-    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /**

@@ -38,9 +38,8 @@ export function AppsScriptSetup() {
   } = useApp();
 
   // Tab: 'direct' (Direct Google Sheets API - Recommended) vs 'appscript' (Legacy Web App)
-  const [activeTab, setActiveTab] = useState<'direct' | 'appscript'>(
-    connectionType === 'appscript' ? 'appscript' : 'direct'
-  );
+  // Force 'appscript' as the default to allow anonymous submissions for friends and coworkers
+  const [activeTab, setActiveTab] = useState<'direct' | 'appscript'>('appscript');
 
   // Direct Sheets State
   const [sheetUrlInput, setSheetUrlInput] = useState('');
@@ -184,49 +183,85 @@ export function AppsScriptSetup() {
 
   // The Apps Script Code to be shown
   const appsScriptCode = `/**
- * Google Apps Script for FG & RM Quality & Weight Inspection System
- * Deploy this script as a "Web App" with the following settings:
- * - Execute as: Me (Your email)
- * - Who has access: Anyone (This allows your React App to fetch it securely)
+ * Google Apps Script for FG & RM Quality & Weight Inspection System (v2.2 - Bulletproof Version)
+ * 
+ * วิธีการตั้งค่า Deployment ในหน้า Apps Script เพื่อให้เพื่อนๆ คีย์ข้อมูลได้โดยไม่ต้องล็อกอิน:
+ * 1. คลิกปุ่ม "การทำให้ใช้งานได้ใหม่" (New Deployment) ทางด้านบนขวา
+ * 2. เลือกประเภทเป็น "เว็บแอป" (Web App)
+ * 3. ตั้งค่าการเข้าถึงดังนี้:
+ *    - Execute as (เรียกใช้ในฐานะ): Me (อีเมลของคุณเอง - เจ้าของชีต)
+ *    - Who has access (ผู้มีสิทธิ์เข้าถึง): Anyone (ทุกคน) <-- สำคัญมาก ห้ามเลือกตัวเลือกอื่น!
+ * 4. กด Deploy และคัดลอกลิงก์เว็บแอปที่ลงท้ายด้วย "/exec" มาใส่ในหน้าต่างตั้งค่าของเว็บแอปค่ะ
  */
 
+// หากใช้ Apps Script แบบสร้างจากภายนอกสเปรดชีต (Standalone) ให้ระบุรหัสสเปรดชีต (Spreadsheet ID) ในเครื่องหมายคำพูดด้านล่างนี้ได้เลยค่ะ 
+// (หากสร้างจากเมนู "ส่วนขยาย > Apps Script" ภายใน Google Sheets อยู่แล้ว สามารถเว้นเป็น "" ได้เลยค่ะ)
+var SPREADSHEET_ID = "";
+
+function getSpreadsheet() {
+  if (typeof SPREADSHEET_ID === "string" && SPREADSHEET_ID.trim() !== "") {
+    try {
+      return SpreadsheetApp.openById(SPREADSHEET_ID.trim());
+    } catch (e) {
+      throw new Error("ไม่สามารถเปิดสเปรดชีตจาก SPREADSHEET_ID ที่ระบุได้ กรุณาตรวจสอบ ID ให้ถูกต้อง หรือตั้งค่าสิทธิ์แชร์ไฟล์เป็น 'ทุกคนที่มีลิงก์' (Anyone with link) ค่ะ: " + e.message);
+    }
+  }
+  
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) return ss;
+  } catch (e) {}
+  
+  throw new Error("ไม่พบสเปรดชีตที่ทำงานร่วมกัน กรุณาระบุ Spreadsheet ID ในส่วนหัวของโค้ดสคริปต์นี้เพื่อแก้ปัญหาค่ะ");
+}
+
 function doGet(e) {
-  var action = e.param ? e.param.action : null;
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  initSheets(ss);
-  var masterData = updateAndExtractMasterData(ss);
-  
-  var responseData = {
-    success: true,
-    packaging: getSheetRecords(ss.getSheetByName("Packaging_Inspection")),
-    fgWeight: getSheetRecords(ss.getSheetByName("FG_Weight_Check")),
-    rmReceiving: getSheetRecords(ss.getSheetByName("Raw_Material_Receiving")),
-    rmWeight: getSheetRecords(ss.getSheetByName("RM_Weight_Check")),
-    expDate: getSheetRecords(ss.getSheetByName("Exp_Date")),
-    masterData: masterData
-  };
-  
-  return ContentService.createTextOutput(JSON.stringify(responseData))
-    .setMimeType(ContentService.MimeType.JSON);
+  try {
+    var ss = getSpreadsheet();
+    initSheets(ss);
+    
+    var masterData = updateAndExtractMasterData(ss);
+    
+    var responseData = {
+      success: true,
+      packaging: getSheetRecords(ss.getSheetByName("Packaging_Inspection")),
+      fgWeight: getSheetRecords(ss.getSheetByName("FG_Weight_Check")),
+      rmReceiving: getSheetRecords(ss.getSheetByName("Raw_Material_Receiving")),
+      rmWeight: getSheetRecords(ss.getSheetByName("RM_Weight_Check")),
+      expDate: getSheetRecords(ss.getSheetByName("Exp_Date")),
+      masterData: masterData
+    };
+    
+    return ContentService.createTextOutput(JSON.stringify(responseData))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      message: error.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 function doPost(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  initSheets(ss);
-  var responseData = { success: false, message: "" };
-  
   try {
+    var ss = getSpreadsheet();
+    initSheets(ss);
+    
+    var responseData = { success: false, message: "" };
     var postData = JSON.parse(e.postData.contents);
-    var action = postData.action;
+    var action = postData.action; // 'create' | 'update' | 'delete' | 'batchCreate'
     var sheetName = postData.sheetName;
     var payload = postData.data;
     
     var sheet = ss.getSheetByName(sheetName);
-    if (!sheet) throw new Error("Sheet not found: " + sheetName);
+    if (!sheet) {
+      throw new Error("ไม่พบแท็บชีตชื่อ: " + sheetName);
+    }
     
     if (action === 'create') {
       var id = payload.id;
       var rowNum = id ? findRowIndexById(sheet, id) : -1;
+      
       if (rowNum !== -1) {
         var headers = getHeaders(sheet);
         headers.forEach(function(header, colIdx) {
@@ -235,7 +270,7 @@ function doPost(e) {
           sheet.getRange(rowNum, colIdx + 1).setValue(value);
         });
         responseData.success = true;
-        responseData.message = "Updated existing record";
+        responseData.message = "แก้ไขข้อมูลซ้ำเรียบร้อยแล้ว (อัปเดตข้อมูลแถวเดิม)";
       } else {
         var headers = getHeaders(sheet);
         var newRowValues = headers.map(function(header) {
@@ -243,48 +278,114 @@ function doPost(e) {
         });
         sheet.appendRow(newRowValues);
         responseData.success = true;
-        responseData.message = "Record created successfully";
+        responseData.message = "เพิ่มข้อมูลใหม่ลงในชีตสำเร็จเรียบร้อยแล้วค่ะ";
       }
+      
     } else if (action === 'batchCreate') {
       var headers = getHeaders(sheet);
       var records = payload;
       if (Array.isArray(records)) {
-        var rowsToAppend = records.map(function(rec) {
-          return headers.map(function(h) { return formatCellValue(h, rec, sheetName); });
+        var existingIds = {};
+        var dataRange = sheet.getDataRange().getValues();
+        var idColIdx = headers.indexOf("id");
+        if (idColIdx !== -1) {
+          for (var i = 1; i < dataRange.length; i++) {
+            var val = dataRange[i][idColIdx].toString().trim();
+            if (val) {
+              existingIds[val] = i + 1;
+            }
+          }
+        }
+        
+        var rowsToAppend = [];
+        records.forEach(function(rec) {
+          var recId = rec.id ? rec.id.toString().trim() : "";
+          if (recId && existingIds[recId]) {
+            var existingRowNum = existingIds[recId];
+            headers.forEach(function(header, colIdx) {
+              if (header === "id") return;
+              var value = formatCellValue(header, rec, sheetName);
+              sheet.getRange(existingRowNum, colIdx + 1).setValue(value);
+            });
+          } else {
+            var rowValues = headers.map(function(header) {
+              return formatCellValue(header, rec, sheetName);
+            });
+            rowsToAppend.push(rowValues);
+          }
         });
+        
         if (rowsToAppend.length > 0) {
           var startRow = sheet.getLastRow() + 1;
-          sheet.getRange(startRow, 1, rowsToAppend.length, headers.length).setValues(rowsToAppend);
+          var numRows = rowsToAppend.length;
+          var numCols = headers.length;
+          sheet.getRange(startRow, 1, numRows, numCols).setValues(rowsToAppend);
         }
+        
         responseData.success = true;
-        responseData.message = "Batch created successfully";
+        responseData.message = "ซิงค์อัปเดตประวัติทั้งหมดเรียบร้อย จำนวน: " + records.length + " รายการ";
+      } else {
+        throw new Error("โครงสร้างข้อมูลในการซิงค์แบบกลุ่มไม่ถูกต้อง");
       }
+      
     } else if (action === 'update') {
       var id = payload.id;
+      if (!id) throw new Error("ไม่พบ ID สำหรับการอัปเดตข้อมูล");
+      
       var rowNum = findRowIndexById(sheet, id);
       var headers = getHeaders(sheet);
-      if (rowNum !== -1) {
+      
+      if (rowNum === -1) {
+        var newRowValues = headers.map(function(header) {
+          return formatCellValue(header, payload, sheetName);
+        });
+        sheet.appendRow(newRowValues);
+        responseData.success = true;
+        responseData.message = "ไม่พบรายการแก้ไข จึงถูกเพิ่มเข้าไปเป็นรายการใหม่เรียบร้อยค่ะ";
+      } else {
         headers.forEach(function(header, colIdx) {
           if (header === "id") return;
-          sheet.getRange(rowNum, colIdx + 1).setValue(formatCellValue(header, payload, sheetName));
+          var value = formatCellValue(header, payload, sheetName);
+          sheet.getRange(rowNum, colIdx + 1).setValue(value);
         });
         responseData.success = true;
-        responseData.message = "Updated successfully";
+        responseData.message = "แก้ไขข้อมูลแถวสำเร็จเรียบร้อยค่ะ";
       }
+      
     } else if (action === 'delete') {
       var id = payload.id;
-      var rowNum = findRowIndexById(sheet, id);
-      if (rowNum !== -1) {
-        sheet.deleteRow(rowNum);
-        responseData.success = true;
-        responseData.message = "Deleted successfully";
+      if (!id) throw new Error("ไม่พบ ID สำหรับการลบข้อมูล");
+      
+      var data = sheet.getDataRange().getValues();
+      var headers = data[0];
+      var idColIdx = headers.indexOf("id");
+      var deletedCount = 0;
+      
+      if (idColIdx !== -1) {
+        var idStr = id.toString().trim();
+        for (var i = data.length - 1; i >= 1; i--) {
+          if (compareIds(data[i][idColIdx], idStr)) {
+            sheet.deleteRow(i + 1);
+            deletedCount++;
+          }
+        }
       }
+      
+      responseData.success = true;
+      responseData.message = "ลบรายการออกจากสเปรดชีตสำเร็จค่ะ (จำนวน: " + deletedCount + " แถว)";
     }
+    
+    var masterData = updateAndExtractMasterData(ss);
+    responseData.masterData = masterData;
+    
+    return ContentService.createTextOutput(JSON.stringify(responseData))
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
-    responseData.success = false;
-    responseData.message = error.toString();
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      message: error.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
   }
-  return ContentService.createTextOutput(JSON.stringify(responseData)).setMimeType(ContentService.MimeType.JSON);
 }
 
 function initSheets(ss) {
@@ -293,529 +394,219 @@ function initSheets(ss) {
     "FG_Weight_Check": ["id", "date", "fgCode", "batch", "quantityKg", "standardWeightKg", "samples", "averageWeight", "status", "note", "inspector"],
     "Raw_Material_Receiving": ["id", "date", "docNo", "rmCode", "batch", "deliveryNo", "poNo", "quantityKg", "supplier", "status", "inspector"],
     "RM_Weight_Check": ["id", "date", "rmCode", "batch", "quantityKg", "standardWeightKg", "samples", "averageWeight", "status", "note", "inspector"],
-    "Exp_Date": ["id", "date", "rmCode", "batch", "mfgDate", "expDate", "status", "note", "inspector"]
+    "Exp_Date": ["id", "date", "rmCode", "batch", "mfgDate", "expDate", "status", "note", "inspector"],
+    "Master_Data": ["customers", "fgCodes", "rmCodes", "suppliers"]
   };
-  for (var name in requiredSheets) {
-    if (!ss.getSheetByName(name)) {
-      var sheet = ss.insertSheet(name);
-      sheet.appendRow(requiredSheets[name]);
+  
+  for (var sheetName in requiredSheets) {
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      sheet.appendRow(requiredSheets[sheetName]);
     }
   }
-}`;
+}
+
+function formatCellValue(header, record, sheetName) {
+  var value = record[header];
+  if (sheetName === "FG_Weight_Check" || sheetName === "RM_Weight_Check") {
+    if (header === "samples") {
+      var samplesArr = record.samples || [];
+      var container = record.containerType || (sheetName === "FG_Weight_Check" ? "กล่อง" : "ถุง");
+      return samplesArr.length + " , " + container;
+    }
+    if (header === "averageWeight") {
+      var samplesArr = record.samples || [];
+      if (samplesArr.length > 0) {
+        return samplesArr.join("/");
+      }
+      return "";
+    }
+  }
+  
+  if (header === "samples") {
+    return JSON.stringify(value || []);
+  }
+  return value !== undefined ? value : "";
+}
+
+function getSheetRecords(sheet) {
+  var sheetName = sheet.getName();
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  
+  var headers = data[0];
+  var records = [];
+  
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var record = {};
+    var hasData = false;
+    
+    headers.forEach(function(header, idx) {
+      var val = row[idx];
+      if (val !== "") hasData = true;
+      record[header] = val;
+    });
+    
+    if (hasData) {
+      if (sheetName === "FG_Weight_Check" || sheetName === "RM_Weight_Check") {
+        var samplesRaw = record["samples"] ? record["samples"].toString().trim() : "";
+        var avgWeightRaw = record["averageWeight"] ? record["averageWeight"].toString().trim() : "";
+        
+        var containerType = sheetName === "FG_Weight_Check" ? "กล่อง" : "ถุง";
+        if (samplesRaw.indexOf(",") !== -1) {
+          var parts = samplesRaw.split(",");
+          containerType = parts[1] ? parts[1].trim() : containerType;
+        }
+        record["containerType"] = containerType;
+        
+        var samplesArr = [];
+        if (avgWeightRaw.indexOf("/") !== -1) {
+          samplesArr = avgWeightRaw.split("/").map(function(item) {
+            return parseFloat(item.trim()) || 0;
+          }).filter(function(v) { return !isNaN(v); });
+        } else if (avgWeightRaw !== "") {
+          var singleVal = parseFloat(avgWeightRaw);
+          if (!isNaN(singleVal)) {
+            samplesArr = [singleVal];
+          }
+        }
+        record["samples"] = samplesArr;
+        
+        if (samplesArr.length > 0) {
+          var sum = samplesArr.reduce(function(a, b) { return a + b; }, 0);
+          record["averageWeight"] = parseFloat((sum / samplesArr.length).toFixed(2));
+        } else {
+          record["averageWeight"] = 0;
+        }
+      } else {
+        if (record["samples"] !== undefined) {
+          try {
+            record["samples"] = JSON.parse(record["samples"] || "[]");
+          } catch (e) {
+            record["samples"] = [];
+          }
+        }
+      }
+      
+      records.push(record);
+    }
+  }
+  return records;
+}
+
+function compareIds(id1, id2) {
+  if (id1 === undefined || id1 === null || id2 === undefined || id2 === null) return false;
+  var s1 = id1.toString().trim();
+  var s2 = id2.toString().trim();
+  if (s1 === s2) return true;
+  if (s1.indexOf('.') !== -1 && s1.endsWith('.0')) s1 = s1.substring(0, s1.length - 2);
+  if (s2.indexOf('.') !== -1 && s2.endsWith('.0')) s2 = s2.substring(0, s2.length - 2);
+  if (s1 === s2) return true;
+  if (!isNaN(s1) && !isNaN(s2)) return Number(s1) === Number(s2);
+  return false;
+}
+
+function findRowIndexById(sheet, id) {
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return -1;
+  for (var i = 1; i < data.length; i++) {
+    if (compareIds(data[i][idColIdx], id)) return i + 1;
+  }
+  return -1;
+}
+
+function getHeaders(sheet) {
+  return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+}
+
+function updateAndExtractMasterData(ss) {
+  var pkgSheet = ss.getSheetByName("Packaging_Inspection");
+  var fgWSheet = ss.getSheetByName("FG_Weight_Check");
+  var rmSheet = ss.getSheetByName("Raw_Material_Receiving");
+  var rmWSheet = ss.getSheetByName("RM_Weight_Check");
+  var expSheet = ss.getSheetByName("Exp_Date");
+  
+  var customers = [];
+  var fgCodes = [];
+  var rmCodes = [];
+  var suppliers = [];
+  
+  if (pkgSheet) {
+    var pkgData = getSheetRecords(pkgSheet);
+    pkgData.forEach(function(r) {
+      if (r.customer && customers.indexOf(r.customer.trim()) === -1) customers.push(r.customer.trim());
+      if (r.fgCode && fgCodes.indexOf(r.fgCode.trim()) === -1) fgCodes.push(r.fgCode.trim());
+    });
+  }
+  if (fgWSheet) {
+    var fgWData = getSheetRecords(fgWSheet);
+    fgWData.forEach(function(r) {
+      if (r.fgCode && fgCodes.indexOf(r.fgCode.trim()) === -1) fgCodes.push(r.fgCode.trim());
+    });
+  }
+  if (rmSheet) {
+    var rmData = getSheetRecords(rmSheet);
+    rmData.forEach(function(r) {
+      if (r.rmCode && rmCodes.indexOf(r.rmCode.trim()) === -1) rmCodes.push(r.rmCode.trim());
+      if (r.supplier && suppliers.indexOf(r.supplier.trim()) === -1) suppliers.push(r.supplier.trim());
+    });
+  }
+  if (rmWSheet) {
+    var rmWData = getSheetRecords(rmWSheet);
+    rmWData.forEach(function(r) {
+      if (r.rmCode && rmCodes.indexOf(r.rmCode.trim()) === -1) rmCodes.push(r.rmCode.trim());
+    });
+  }
+  if (expSheet) {
+    var expData = getSheetRecords(expSheet);
+    expData.forEach(function(r) {
+      if (r.rmCode && rmCodes.indexOf(r.rmCode.trim()) === -1) rmCodes.push(r.rmCode.trim());
+    });
+  }
+  
+  customers = customers.filter(Boolean);
+  fgCodes = fgCodes.filter(Boolean);
+  rmCodes = rmCodes.filter(Boolean);
+  suppliers = suppliers.filter(Boolean);
+  
+  var masterSheet = ss.getSheetByName("Master_Data");
+  if (masterSheet) {
+    masterSheet.clearContents();
+    masterSheet.getRange(1, 1, 1, 4).setValues([["customers", "fgCodes", "rmCodes", "suppliers"]]);
+    var maxLen = Math.max(customers.length, fgCodes.length, rmCodes.length, suppliers.length);
+    if (maxLen > 0) {
+      var rowsToWrite = [];
+      for (var i = 0; i < maxLen; i++) {
+        rowsToWrite.push([customers[i] || "", fgCodes[i] || "", rmCodes[i] || "", suppliers[i] || ""]);
+      }
+      masterSheet.getRange(2, 1, rowsToWrite.length, 4).setValues(rowsToWrite);
+    }
+  }
+  return { customers: customers, fgCodes: fgCodes, rmCodes: rmCodes, suppliers: suppliers };
+}
+`;
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Tab Switcher Header */}
+      {/* Streamlined Setup Header specifically optimized for anonymous coworkers access via Apps Script */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
           <div>
             <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
               <Database className="w-5 h-5 text-blue-600" />
-              <span>การเชื่อมต่อ Google Sheets</span>
+              <span>การเชื่อมต่อ Google Sheets (ผ่าน Apps Script)</span>
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              เลือกวิธีการเชื่อมต่อฐานข้อมูล Google Sheets ตามที่คุณสะดวกที่สุด
+              ตั้งค่าและเชื่อมต่อสเปรดชีตของคุณผ่าน Apps Script เพื่อให้เพื่อนร่วมงานกรอกข้อมูลได้ทันทีโดยไม่ต้องลงชื่อเข้าใช้ค่ะ
             </p>
-          </div>
-
-          {/* Tab Buttons */}
-          <div className="flex bg-slate-100 p-1 rounded-xl self-start sm:self-auto">
-            <button
-              onClick={() => setActiveTab('direct')}
-              className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
-                activeTab === 'direct'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>เชื่อมต่อตรง (ไม่ต้องใช้สคริปต์)</span>
-              <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] rounded-full font-black">
-                แนะนำ
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab('appscript')}
-              className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
-                activeTab === 'appscript'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Link className="w-3.5 h-3.5" />
-              <span>Apps Script Web App</span>
-            </button>
           </div>
         </div>
 
-        {/* TAB 1: DIRECT GOOGLE SHEETS (NO APPS SCRIPT) */}
-        {activeTab === 'direct' && (
-          <div className="mt-6 space-y-6">
-            {/* Banner */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50/60 border border-blue-200/80 rounded-2xl p-5">
-              <div className="flex items-start gap-3">
-                <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-xs shrink-0">
-                  <Sparkles className="w-5 h-5 text-amber-300" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-blue-950 text-sm sm:text-base">
-                    เชื่อมต่อผ่านบัญชี Google โดยตรง (ไม่ต้องใส่ลิงก์สคริปต์)
-                  </h3>
-                  <p className="text-xs text-blue-800/90 mt-1 leading-relaxed">
-                    คุณสามารถเชื่อมต่อกับ Google Sheets ได้ทันทีโดยไม่ต้องเปิด Apps Script ไม่ต้องเขียนหรือคัดลอกโค้ด ไม่ต้องตั้งค่า Deploy และไม่มีปัญหาลิงก์เสียหรือสิทธิ์ขัดข้อง เพียงลงชื่อเข้าใช้ด้วย Google เท่านั้นค่ะ
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Notification messages */}
-            {directMessage && (
-              <div className={`p-4 rounded-xl border text-xs font-medium leading-relaxed flex items-start space-x-2.5 ${
-                directMessage.type === 'success' 
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
-                  : 'bg-red-50 border-red-200 text-red-900'
-              }`}>
-                {directMessage.type === 'success' ? (
-                  <CheckCircle className="w-4.5 h-4.5 shrink-0 text-emerald-600 mt-0.5" />
-                ) : (
-                  <AlertCircle className="w-4.5 h-4.5 shrink-0 text-red-600 mt-0.5" />
-                )}
-                <span>{directMessage.text}</span>
-              </div>
-            )}
-
-            {/* Step 1: Google Account Authentication */}
-            <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-5 space-y-4">
-              <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                ขั้นตอนที่ 1 : เข้าสู่ระบบด้วย Google
-              </span>
-
-              {/* Informative Warning for Custom Domain / Vercel Deployments */}
-              {isCustomDomain && !googleUser && (
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-2 text-slate-800">
-                  <div className="flex items-start space-x-2.5">
-                    <Database className="w-4.5 h-4.5 text-blue-600 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-extrabold text-blue-950 text-xs sm:text-sm">📢 คุณกำลังเปิดใช้งานแอปผ่านโดเมนส่วนตัว: {hostname}</h4>
-                      <p className="text-xs text-blue-800 leading-relaxed mt-0.5">
-                        ระบบกำลังทำงานผ่าน Vercel หรือโดเมนเฉพาะตัวของคุณค่ะ เพื่อให้ลงชื่อเข้าใช้ด้วย Google ได้สำเร็จ อย่าลืมนำโดเมนนี้ไปลงทะเบียนใน <strong>Authorized domains</strong> ของระบบ Firebase Console ของคุณด้วยนะคะ! (กรุณาดูคู่มือสีแดงด้านล่าง หากกดลงชื่อเข้าใช้แล้วพบข้อผิดพลาด)
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {isInIframe && !googleUser && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3 text-slate-800">
-                  <div className="flex items-start space-x-2.5">
-                    <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-extrabold text-amber-950 text-xs sm:text-sm">⚠️ คำแนะนำสำหรับผู้ใช้งานบน AI Studio</h4>
-                      <p className="text-xs text-amber-800 leading-relaxed mt-0.5">
-                        ระบบตรวจพบว่าคุณกำลังเปิดแอปนี้อยู่ภายใน **Iframe หน้าทดสอบของ AI Studio** ซึ่งเบราว์เซอร์จะบล็อกป๊อปอัปความปลอดภัยและการเชื่อมต่อคุ้กกี้สำหรับการล็อกอินด้วย Google เสมอค่ะ
-                      </p>
-                      <p className="text-xs text-amber-800/90 leading-relaxed mt-1 font-bold">
-                        กรุณากดปุ่มด้านล่างเพื่อเปิดใช้งานแอปในหน้าต่างใหม่ (เต็มหน้าจอ) จากนั้นคุณจะสามารถกดลงชื่อเข้าใช้ Google และใช้งานได้อย่างราบรื่น 100% เลยค่ะ!
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => window.open(window.location.origin, '_blank')}
-                    className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>🌐 เปิดแอปในแท็บใหม่เพื่อล็อกอิน (แนะนำ)</span>
-                  </button>
-                </div>
-              )}
-
-              {!googleUser ? (
-                <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-1">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-800">
-                        ลงชื่อเข้าใช้ด้วยบัญชี Google ของคุณ
-                      </h4>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        เพื่ออนุญาตให้แอปอ่านและบันทึกข้อมูลผลการชั่งน้ำหนักลงสเปรดชีตของคุณโดยตรง โดยได้รับความยินยอมและการอนุญาตจากผู้ใช้งาน
-                      </p>
-                    </div>
-
-                    {/* Standard Sign in with Google Button */}
-                    <button
-                      type="button"
-                      onClick={signInWithGoogle}
-                      className="inline-flex items-center space-x-3 px-4 py-2.5 bg-white border border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
-                    >
-                      <svg className="w-4.5 h-4.5" viewBox="0 0 48 48">
-                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-                        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
-                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-                      </svg>
-                      <span>Sign in with Google</span>
-                    </button>
-                  </div>
-
-                  {/* Comprehensive Error Handling Box if Authentication fails */}
-                  {connectionError && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
-                      <div className="flex items-start space-x-2.5">
-                        <AlertCircle className="w-4.5 h-4.5 text-red-600 shrink-0 mt-0.5" />
-                        <div>
-                          <h4 className="font-extrabold text-red-950 text-xs sm:text-sm">❌ ไม่สามารถลงชื่อเข้าใช้งานได้</h4>
-                          <p className="text-xs text-red-800 leading-relaxed mt-1 font-mono break-all bg-red-100/30 p-2 rounded-lg border border-red-200/40">
-                            {connectionError}
-                          </p>
-                        </div>
-                      </div>
-
-                      {isUnauthorizedDomainError && (
-                        <div className="bg-white border border-red-100 rounded-lg p-3.5 space-y-3.5 text-xs text-slate-700 shadow-xs">
-                          <div className="font-bold text-red-900 border-b border-red-100 pb-1.5 flex items-center gap-1.5">
-                            <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
-                            <span>💡 วิธีแก้ไขด่วนสำหรับโดเมน Vercel / โดเมนส่วนตัว (ทำเพียงครั้งเดียว):</span>
-                          </div>
-                          <p className="text-slate-600 leading-relaxed font-medium">
-                            เนื่องจากคุณเปิดเว็บแอปจากโดเมน <span className="underline decoration-blue-500 decoration-2 font-bold font-mono text-blue-600">{hostname || 'Vercel'}</span> ตัวเบราว์เซอร์จะปฏิเสธการเชื่อมต่อหากระบบ Firebase ยังไม่ได้รับการอนุญาตโดเมนนี้ค่ะ สามารถเพิ่มโดเมนได้ตามขั้นตอนนี้เลยค่ะ:
-                          </p>
-                          <ol className="list-decimal pl-5 space-y-2.5 text-slate-600 leading-relaxed">
-                            <li>
-                              เปิดไปที่ลิ้งค์ <strong><a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-700 underline font-black inline-flex items-center gap-0.5 bg-blue-50 px-1.5 py-0.5 rounded">Firebase Console <ExternalLink className="w-3.5 h-3.5 inline" /></a></strong> ด้วยเบราว์เซอร์ที่มีสิทธิ์โปรเจกต์ของคุณ
-                            </li>
-                            <li>
-                              กดเลือกโปรเจกต์ของคุณ ที่มีชื่อว่า: <strong className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-900">gen-lang-client-0486838165</strong>
-                            </li>
-                            <li>
-                              ที่แถบเมนูด้านซ้ายสุด ให้เลือกเมนูย่อย <strong>Build</strong> &gt; <strong>Authentication</strong> (การตรวจสอบสิทธิ์)
-                            </li>
-                            <li>
-                              คลิกแท็บ <strong>Settings (การตั้งค่า)</strong> ที่อยู่บริเวณแถบด้านบนขวา
-                            </li>
-                            <li>
-                              ที่แถบด้านซ้ายสุดภายใต้แท็บตั้งค่า คลิกเมนูย่อย <strong>Authorized domains (โดเมนที่ได้รับอนุญาต)</strong>
-                            </li>
-                            <li>
-                              คลิกปุ่ม <strong>Add domain (เพิ่มโดเมน)</strong> จากนั้นกรอกชื่อโดเมนเว็บแอปของคุณด้านล่างนี้ลงไป:
-                              <div className="mt-1.5 flex items-center gap-2">
-                                <span className="bg-slate-100 border border-slate-200 text-slate-900 font-mono font-bold px-2.5 py-1 rounded-lg text-xs select-all shrink-0">
-                                  {hostname || 'your-app-domain.vercel.app'}
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-medium">(คัดลอกส่วนนี้ไปวางได้เลยค่ะ)</span>
-                              </div>
-                            </li>
-                            <li>
-                              กดปุ่ม <strong>Add (เพิ่ม)</strong> เพื่อบันทึกรายการ
-                            </li>
-                            <li>
-                              กลับมายังหน้าเว็บนี้ แล้วกดปุ่ม <strong>Sign in with Google</strong> เพื่อล็อกอินใหม่อีกครั้งได้ทันทีเลยค่ะ! 🎉
-                            </li>
-                          </ol>
-                        </div>
-                      )}
-
-                      {isPopupBlockedError && (
-                        <div className="bg-white border border-red-100 rounded-lg p-3 text-xs text-slate-700">
-                          <p className="font-bold text-red-900 mb-1">💡 วิธีแก้ปัญหาป๊อปอัปถูกบล็อก:</p>
-                          <p className="leading-relaxed">
-                            เนื่องจากบางเบราว์เซอร์บล็อกป๊อปอัปอัตโนมัติ กรุณาสังเกตไอคอนรูปกากบาทหรือหน้าต่างถูกบล็อกบริเวณมุมขวาสุดของแถบที่อยู่เว็บ (Address Bar) แล้วคลิกเลือก <strong>"อนุญาตป๊อปอัปจากเว็บไซต์นี้เสมอ"</strong> จากนั้นลองกดลงชื่อเข้าใช้ใหม่อีกครั้งนะคะ
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-1">
-                  <div className="flex items-center space-x-3">
-                    {googleUser.photoURL ? (
-                      <img 
-                        src={googleUser.photoURL} 
-                        alt={googleUser.displayName || 'User'} 
-                        className="w-10 h-10 rounded-full border border-slate-200 shadow-xs" 
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-xs">
-                        {(googleUser.email || 'G')[0].toUpperCase()}
-                      </div>
-                    )}
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="text-sm font-bold text-slate-800">
-                          {googleUser.displayName || 'ผู้ใช้งาน Google'}
-                        </h4>
-                        <span className="inline-flex items-center px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          ✓ ลงชื่อเข้าใช้แล้ว
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500 font-mono mt-0.5">
-                        {googleUser.email}
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={signOutGoogle}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-bold transition cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>ออกจากระบบ Google</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Step 2: Spreadsheet Connection & Management */}
-            <div className="space-y-4">
-              <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                ขั้นตอนที่ 2 : เลือกหรือสร้าง Google Sheet
-              </span>
-
-              {isConnected && connectionType === 'direct' && googleSpreadsheetId ? (
-                /* Connected State Card */
-                <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-6 space-y-5">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex items-start space-x-3">
-                      <div className="p-2 bg-emerald-600 text-white rounded-xl shrink-0 mt-0.5">
-                        <CheckCircle className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-extrabold text-emerald-950">
-                            เชื่อมต่อกับ Google Sheet เรียบร้อยแล้ว (Direct API)
-                          </h4>
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-                        </div>
-                        <p className="text-xs text-emerald-800 mt-0.5">
-                          ระบบกำลังอ่านและบันทึกข้อมูลสุ่มชั่งและคุมอายุเข้าสู่ Google Sheet แบบเรียลไทม์โดยตรงค่ะ
-                        </p>
-                        <p className="text-[11px] font-mono text-emerald-700 mt-1 break-all bg-emerald-100/60 px-2 py-1 rounded-md">
-                          Spreadsheet ID: {googleSpreadsheetId}
-                        </p>
-                      </div>
-                    </div>
-
-                    <a
-                      href={`https://docs.google.com/spreadsheets/d/${googleSpreadsheetId}/edit`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center space-x-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition shrink-0 cursor-pointer"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      <span>เปิดดูใน Google Sheets</span>
-                    </a>
-                  </div>
-
-                  {/* Sync Upload Current Data Box */}
-                  <div className="bg-white border border-emerald-200/80 rounded-xl p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2 text-slate-800">
-                        <UploadCloud className="w-4 h-4 text-emerald-600" />
-                        <span className="text-xs font-bold">อัปโหลดข้อมูลประวัติทั้งหมดเข้าสู่ชีต</span>
-                      </div>
-                      <span className="text-[11px] text-slate-500">
-                        {isSyncing ? 'กำลังทำงาน...' : 'พร้อมซิงค์'}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-slate-600 leading-relaxed">
-                      หากคุณมีข้อมูลที่กรอกไว้ในเครื่องแล้วต้องการให้ส่งขึ้นไปบรรจุใน Google Sheet ทันที สามารถกดปุ่มด้านล่างนี้ได้เลยค่ะ (จะไม่สร้างข้อมูลซ้ำ)
-                    </p>
-
-                    <button
-                      type="button"
-                      disabled={isSyncing}
-                      onClick={async () => {
-                        const res = await uploadLocalDataToSheets();
-                        if (res.success) {
-                          setDirectMessage({ type: 'success', text: res.message });
-                        } else {
-                          setDirectMessage({ type: 'error', text: res.message });
-                        }
-                      }}
-                      className="w-full inline-flex items-center justify-center space-x-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
-                    >
-                      <UploadCloud className="w-4 h-4" />
-                      <span>{isSyncing ? 'กำลังอัปโหลด...' : 'อัปโหลดข้อมูลประวัติขึ้น Google Sheets เดี๋ยวนี้'}</span>
-                    </button>
-                  </div>
-
-                  {/* Disconnect Button */}
-                  <button
-                    type="button"
-                    onClick={disconnectSheets}
-                    className="w-full inline-flex items-center justify-center space-x-1.5 py-2.5 border border-red-200 hover:bg-red-50 text-red-700 rounded-xl text-xs font-bold transition cursor-pointer"
-                  >
-                    <Unlink className="w-4 h-4" />
-                    <span>ตัดการเชื่อมต่อ Google Sheet นี้</span>
-                  </button>
-                </div>
-              ) : (
-                /* Unconnected: Options to Connect */
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Option A: Create New Sheet with 1-Click */}
-                  <div className="bg-white border-2 border-dashed border-blue-200 hover:border-blue-300 rounded-2xl p-5 flex flex-col justify-between space-y-4 transition">
-                    <div className="space-y-2">
-                      <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold">
-                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                        <span>ตัวเลือกที่ 1 : สะดวกและง่ายที่สุด</span>
-                      </div>
-                      <h4 className="text-sm font-extrabold text-slate-800">
-                        สร้าง Google Sheet ใหม่ให้อัตโนมัติ
-                      </h4>
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        ระบบจะสร้างสเปรดชีตชื่อ <strong>"ระบบตรวจสอบชิ้นงานและสุ่มชั่ง FG-RM"</strong> ใน Google Drive ของคุณ พร้อมทั้งเตรียมหัวตารางทั้ง 5 แท็บ และนำเข้าข้อมูลประวัติปัจจุบันทั้งหมดให้ทันทีในคลิกเดียว!
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={isCreatingSheet || !googleUser}
-                      onClick={handleCreateNewSheet}
-                      className="w-full inline-flex items-center justify-center space-x-2 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition disabled:opacity-50 cursor-pointer"
-                    >
-                      {isCreatingSheet ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>กำลังสร้าง Google Sheet ใหม่และเชื่อมต่อ...</span>
-                        </>
-                      ) : (
-                        <>
-                          <FileSpreadsheet className="w-4 h-4" />
-                          <span>🚀 คลิกสร้าง Google Sheet ใหม่ทันที</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Option B: Connect to Existing Sheet */}
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4">
-                    <div className="space-y-2">
-                      <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold">
-                        <Link className="w-3.5 h-3.5 text-slate-600" />
-                        <span>ตัวเลือกที่ 2 : ใช้สเปรดชีตที่มีอยู่แล้ว</span>
-                      </div>
-                      <h4 className="text-sm font-extrabold text-slate-800">
-                        เลือกสเปรดชีตจาก Google Drive หรือวางลิงก์
-                      </h4>
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        ค้นหาและเลือกสเปรดชีตที่มีอยู่แล้วใน Google Drive ของคุณ หรือวางลิงก์สเปรดชีตเพื่อเชื่อมต่อทันทีค่ะ
-                      </p>
-                    </div>
-
-                    {googleUser && (
-                      <div className="space-y-3 border-t border-b border-slate-100 py-3.5">
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                handleLoadRecentSheets(searchTerm);
-                              }
-                            }}
-                            placeholder="🔍 พิมพ์ชื่อสเปรดชีตเพื่อค้นหา..."
-                            className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 bg-white"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleLoadRecentSheets(searchTerm)}
-                            disabled={isSearching}
-                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition disabled:opacity-50 cursor-pointer"
-                          >
-                            {isSearching ? 'กำลังค้น...' : 'ค้นหา'}
-                          </button>
-                        </div>
-
-                        {searchQueryError && (
-                          <p className="text-[10px] text-red-600 font-medium">{searchQueryError}</p>
-                        )}
-
-                        <div className="bg-slate-50 border border-slate-100 rounded-xl p-2 max-h-48 overflow-y-auto space-y-1.5">
-                          <p className="text-[10px] text-slate-400 font-bold px-1 py-0.5 uppercase tracking-wider">
-                            ชีตของคุณใน Google Drive (15 รายการล่าสุด):
-                          </p>
-                          {isSearching && searchResults.length === 0 ? (
-                            <div className="text-center py-6 text-slate-400 text-xs flex items-center justify-center gap-1.5">
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              <span>กำลังโหลดสเปรดชีต...</span>
-                            </div>
-                          ) : searchResults.length === 0 ? (
-                            <div className="text-center py-6 text-slate-400 text-xs">
-                              ไม่พบชีตที่ต้องการค้นหา
-                            </div>
-                          ) : (
-                            searchResults.map((file) => (
-                              <div
-                                key={file.id}
-                                className="flex items-center justify-between gap-2 p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-lg transition"
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-bold text-slate-700 truncate" title={file.name}>
-                                    📊 {file.name}
-                                  </p>
-                                  <p className="text-[9px] text-slate-400 font-mono truncate">ID: {file.id}</p>
-                                </div>
-                                <button
-                                  type="button"
-                                  disabled={isConnectingDirect}
-                                  onClick={() => handleSelectRecentSheet(file.id)}
-                                  className="px-2.5 py-1 bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white rounded-lg text-[10px] font-bold transition shrink-0 cursor-pointer"
-                                >
-                                  เชื่อมต่อ
-                                </button>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Manual Link paste fallback */}
-                    <form onSubmit={handleDirectConnect} className="space-y-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                          หรือวางลิงก์เบราว์เซอร์สเปรดชีตโดยตรง:
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={sheetUrlInput}
-                          onChange={(e) => setSheetUrlInput(e.target.value)}
-                          placeholder="https://docs.google.com/spreadsheets/d/.../edit"
-                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 font-mono bg-white"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={isConnectingDirect || !googleUser || !sheetUrlInput.trim()}
-                        className="w-full inline-flex items-center justify-center space-x-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 cursor-pointer shadow-xs"
-                      >
-                        {isConnectingDirect ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            <span>กำลังตรวจสอบและเชื่อมต่อ...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Link className="w-3.5 h-3.5" />
-                            <span>เชื่อมต่อกับลิงก์สเปรดชีตนี้</span>
-                          </>
-                        )}
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: APPS SCRIPT WEB APP (LEGACY OPTION) */}
+        {/* TAB: APPS SCRIPT WEB APP CONNECTION SETUP */}
         {activeTab === 'appscript' && (
           <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Instructions Pane */}
@@ -824,10 +615,10 @@ function initSheets(ss) {
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-slate-700">
                   <h4 className="font-extrabold text-amber-900 flex items-center gap-1.5 text-xs sm:text-sm">
                     <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>คำแนะนำ</span>
+                    <span>คำแนะนำสำคัญสำหรับกรอกข้อมูลร่วมกัน (โดยไม่ต้องลงชื่อเข้าใช้)</span>
                   </h4>
                   <p className="text-xs text-amber-900/90 mt-1 leading-relaxed">
-                    หากคุณพบปัญหาข้อผิดพลาดกับลิงก์ Apps Script (เช่น 404 ไม่พบไฟล์ หรือ Load failed) แนะนำให้ใช้แท็บ <strong>"เชื่อมต่อตรง (ไม่ต้องใช้สคริปต์)"</strong> ด้านบน เพื่อความสะดวก รวดเร็ว และไม่มีปัญหาลิงก์เสียค่ะ
+                    หากต้องการให้เพื่อนๆ หรือเพื่อนร่วมงานคนอื่นๆ สามารถเข้ามาร่วมกรอกข้อมูลลงสเปรดชีตเดียวกันได้<strong>โดยไม่ต้องลงชื่อเข้าใช้ Google</strong> กรุณาตั้งค่าสิทธิ์ตอนทำให้ใช้งานได้ใหม่ (New deployment) เป็น <strong>"Anyone" (ทุกคน)</strong> นะคะ
                   </p>
                 </div>
 
