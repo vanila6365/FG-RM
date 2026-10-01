@@ -509,3 +509,35 @@ export async function batchUploadToGoogleSheets(
       : 'ข้อมูลทุกรายการมีอยู่ใน Google Sheets อยู่แล้วค่ะ'
   };
 }
+
+/**
+ * Searches and lists recent Google Spreadsheets from the user's Google Drive
+ */
+export async function searchRecentSpreadsheets(searchTerm: string = ''): Promise<{ id: string; name: string }[]> {
+  const token = await getAccessToken();
+  if (!token) {
+    throw new Error('กรุณาลงชื่อเข้าใช้ Google Account ก่อนค่ะ');
+  }
+
+  let query = "mimeType='application/vnd.google-apps.spreadsheet' and trashed = false";
+  if (searchTerm.trim()) {
+    const escapedTerm = searchTerm.replace(/'/g, "\\'");
+    query += ` and name contains '${escapedTerm}'`;
+  }
+
+  const encodedQuery = encodeURIComponent(query);
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodedQuery}&orderBy=modifiedTime desc&pageSize=15&fields=files(id,name)`;
+
+  const res = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`ไม่สามารถค้นหาไฟล์ใน Google Drive ได้ (${res.status})`);
+  }
+
+  const data = await res.json();
+  return data.files || [];
+}

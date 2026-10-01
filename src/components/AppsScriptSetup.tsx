@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { searchRecentSpreadsheets } from '../services/googleSheetsApi';
 import { 
   Database, 
   CheckCircle, 
@@ -46,6 +47,55 @@ export function AppsScriptSetup() {
   const [isCreatingSheet, setIsCreatingSheet] = useState(false);
   const [isConnectingDirect, setIsConnectingDirect] = useState(false);
   const [directMessage, setDirectMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Drive Search State
+  const [searchResults, setSearchResults] = useState<{ id: string; name: string }[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchQueryError, setSearchQueryError] = useState('');
+  const [hasSearched, setHasSearched] = useState(false);
+
+  // Automatically fetch recent spreadsheets when logged in
+  React.useEffect(() => {
+    if (googleUser && activeTab === 'direct' && !isConnected) {
+      handleLoadRecentSheets();
+    }
+  }, [googleUser, activeTab, isConnected]);
+
+  const handleLoadRecentSheets = async (term: string = '') => {
+    setIsSearching(true);
+    setSearchQueryError('');
+    try {
+      const files = await searchRecentSpreadsheets(term);
+      setSearchResults(files);
+      setHasSearched(true);
+    } catch (err: any) {
+      console.error('Error fetching spreadsheets:', err);
+      if (term) {
+        setSearchQueryError('ไม่สามารถโหลดข้อมูลสเปรดชีตจาก Google Drive ได้ค่ะ กรุณาลองกรอก URL โดยตรงแทนนะคะ');
+      }
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSelectRecentSheet = async (sheetId: string) => {
+    setDirectMessage(null);
+    setIsConnectingDirect(true);
+    try {
+      const ok = await connectGoogleSpreadsheet(sheetId);
+      if (ok) {
+        setDirectMessage({ type: 'success', text: 'เชื่อมต่อกับ Google Sheet เรียบร้อยแล้วค่ะ!' });
+        setSheetUrlInput('');
+      } else {
+        setDirectMessage({ type: 'error', text: connectionError || 'ไม่สามารถเชื่อมต่อกับ Google Sheet นี้ได้' });
+      }
+    } catch (err: any) {
+      setDirectMessage({ type: 'error', text: err.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
+    } finally {
+      setIsConnectingDirect(false);
+    }
+  };
 
   // Apps Script State
   const [urlInput, setUrlInput] = useState(appsScriptUrl || '');
@@ -649,22 +699,95 @@ function initSheets(ss) {
                         <span>ตัวเลือกที่ 2 : ใช้สเปรดชีตที่มีอยู่แล้ว</span>
                       </div>
                       <h4 className="text-sm font-extrabold text-slate-800">
-                        วางลิงก์ Google Sheet ของคุณ
+                        เลือกสเปรดชีตจาก Google Drive หรือวางลิงก์
                       </h4>
                       <p className="text-xs text-slate-500 leading-relaxed">
-                        เปิดสเปรดชีตใน Google Sheets แล้วคัดลอก URL จากช่องแอดเดรสบาร์เบราว์เซอร์มาวางที่นี่ ระบบจะเชื่อมต่อและสร้างแท็บตารางที่จำเป็นให้อัตโนมัติ
+                        ค้นหาและเลือกสเปรดชีตที่มีอยู่แล้วใน Google Drive ของคุณ หรือวางลิงก์สเปรดชีตเพื่อเชื่อมต่อทันทีค่ะ
                       </p>
                     </div>
 
+                    {googleUser && (
+                      <div className="space-y-3 border-t border-b border-slate-100 py-3.5">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleLoadRecentSheets(searchTerm);
+                              }
+                            }}
+                            placeholder="🔍 พิมพ์ชื่อสเปรดชีตเพื่อค้นหา..."
+                            className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleLoadRecentSheets(searchTerm)}
+                            disabled={isSearching}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition disabled:opacity-50 cursor-pointer"
+                          >
+                            {isSearching ? 'กำลังค้น...' : 'ค้นหา'}
+                          </button>
+                        </div>
+
+                        {searchQueryError && (
+                          <p className="text-[10px] text-red-600 font-medium">{searchQueryError}</p>
+                        )}
+
+                        <div className="bg-slate-50 border border-slate-100 rounded-xl p-2 max-h-48 overflow-y-auto space-y-1.5">
+                          <p className="text-[10px] text-slate-400 font-bold px-1 py-0.5 uppercase tracking-wider">
+                            ชีตของคุณใน Google Drive (15 รายการล่าสุด):
+                          </p>
+                          {isSearching && searchResults.length === 0 ? (
+                            <div className="text-center py-6 text-slate-400 text-xs flex items-center justify-center gap-1.5">
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>กำลังโหลดสเปรดชีต...</span>
+                            </div>
+                          ) : searchResults.length === 0 ? (
+                            <div className="text-center py-6 text-slate-400 text-xs">
+                              ไม่พบชีตที่ต้องการค้นหา
+                            </div>
+                          ) : (
+                            searchResults.map((file) => (
+                              <div
+                                key={file.id}
+                                className="flex items-center justify-between gap-2 p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-lg transition"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-bold text-slate-700 truncate" title={file.name}>
+                                    📊 {file.name}
+                                  </p>
+                                  <p className="text-[9px] text-slate-400 font-mono truncate">ID: {file.id}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={isConnectingDirect}
+                                  onClick={() => handleSelectRecentSheet(file.id)}
+                                  className="px-2.5 py-1 bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white rounded-lg text-[10px] font-bold transition shrink-0 cursor-pointer"
+                                >
+                                  เชื่อมต่อ
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Manual Link paste fallback */}
                     <form onSubmit={handleDirectConnect} className="space-y-3">
                       <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                          หรือวางลิงก์เบราว์เซอร์สเปรดชีตโดยตรง:
+                        </label>
                         <input
                           type="text"
                           required
                           value={sheetUrlInput}
                           onChange={(e) => setSheetUrlInput(e.target.value)}
                           placeholder="https://docs.google.com/spreadsheets/d/.../edit"
-                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 font-mono"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 font-mono bg-white"
                         />
                       </div>
                       <button
@@ -680,7 +803,7 @@ function initSheets(ss) {
                         ) : (
                           <>
                             <Link className="w-3.5 h-3.5" />
-                            <span>เชื่อมต่อกับสเปรดชีตนี้</span>
+                            <span>เชื่อมต่อกับลิงก์สเปรดชีตนี้</span>
                           </>
                         )}
                       </button>
