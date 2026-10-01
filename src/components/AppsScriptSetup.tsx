@@ -55,6 +55,21 @@ export function AppsScriptSetup() {
   const [syncStatus, setSyncStatus] = useState<{ loading: boolean; success: boolean; count?: number; error?: string } | null>(null);
 
   const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  const isCustomDomain = hostname && !hostname.includes('localhost') && !hostname.includes('127.0.0.1') && !hostname.includes('run.app');
+
+  const isUnauthorizedDomainError = connectionError && (
+    connectionError.toLowerCase().includes('unauthorized-domain') || 
+    connectionError.toLowerCase().includes('authorized domain') ||
+    connectionError.toLowerCase().includes('auth/unauthorized-domain') ||
+    connectionError.toLowerCase().includes('ไม่ได้รับอนุญาต')
+  );
+
+  const isPopupBlockedError = connectionError && (
+    connectionError.toLowerCase().includes('popup-blocked') ||
+    connectionError.toLowerCase().includes('popup_blocked') ||
+    connectionError.toLowerCase().includes('บล็อก')
+  );
 
   // Handle Google Direct Connect with URL/ID
   const handleDirectConnect = async (e: React.FormEvent) => {
@@ -325,6 +340,21 @@ function initSheets(ss) {
                 ขั้นตอนที่ 1 : เข้าสู่ระบบด้วย Google
               </span>
 
+              {/* Informative Warning for Custom Domain / Vercel Deployments */}
+              {isCustomDomain && !googleUser && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-2 text-slate-800">
+                  <div className="flex items-start space-x-2.5">
+                    <Database className="w-4.5 h-4.5 text-blue-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-extrabold text-blue-950 text-xs sm:text-sm">📢 คุณกำลังเปิดใช้งานแอปผ่านโดเมนส่วนตัว: {hostname}</h4>
+                      <p className="text-xs text-blue-800 leading-relaxed mt-0.5">
+                        ระบบกำลังทำงานผ่าน Vercel หรือโดเมนเฉพาะตัวของคุณค่ะ เพื่อให้ลงชื่อเข้าใช้ด้วย Google ได้สำเร็จ อย่าลืมนำโดเมนนี้ไปลงทะเบียนใน <strong>Authorized domains</strong> ของระบบ Firebase Console ของคุณด้วยนะคะ! (กรุณาดูคู่มือสีแดงด้านล่าง หากกดลงชื่อเข้าใช้แล้วพบข้อผิดพลาด)
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {isInIframe && !googleUser && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3 text-slate-800">
                   <div className="flex items-start space-x-2.5">
@@ -352,30 +382,100 @@ function initSheets(ss) {
               )}
 
               {!googleUser ? (
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-1">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-800">
-                      ลงชื่อเข้าใช้ด้วยบัญชี Google ของคุณ
-                    </h4>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      เพื่ออนุญาตให้แอปอ่านและบันทึกข้อมูลผลการชั่งน้ำหนักลงสเปรดชีตของคุณโดยตรง โดยได้รับความยินยอมและการอนุญาตจากผู้ใช้งาน
-                    </p>
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-1">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800">
+                        ลงชื่อเข้าใช้ด้วยบัญชี Google ของคุณ
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        เพื่ออนุญาตให้แอปอ่านและบันทึกข้อมูลผลการชั่งน้ำหนักลงสเปรดชีตของคุณโดยตรง โดยได้รับความยินยอมและการอนุญาตจากผู้ใช้งาน
+                      </p>
+                    </div>
+
+                    {/* Standard Sign in with Google Button */}
+                    <button
+                      type="button"
+                      onClick={signInWithGoogle}
+                      className="inline-flex items-center space-x-3 px-4 py-2.5 bg-white border border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
+                    >
+                      <svg className="w-4.5 h-4.5" viewBox="0 0 48 48">
+                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                      </svg>
+                      <span>Sign in with Google</span>
+                    </button>
                   </div>
 
-                  {/* Standard Sign in with Google Button */}
-                  <button
-                    type="button"
-                    onClick={signInWithGoogle}
-                    className="inline-flex items-center space-x-3 px-4 py-2.5 bg-white border border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
-                  >
-                    <svg className="w-4.5 h-4.5" viewBox="0 0 48 48">
-                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
-                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-                    </svg>
-                    <span>Sign in with Google</span>
-                  </button>
+                  {/* Comprehensive Error Handling Box if Authentication fails */}
+                  {connectionError && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
+                      <div className="flex items-start space-x-2.5">
+                        <AlertCircle className="w-4.5 h-4.5 text-red-600 shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="font-extrabold text-red-950 text-xs sm:text-sm">❌ ไม่สามารถลงชื่อเข้าใช้งานได้</h4>
+                          <p className="text-xs text-red-800 leading-relaxed mt-1 font-mono break-all bg-red-100/30 p-2 rounded-lg border border-red-200/40">
+                            {connectionError}
+                          </p>
+                        </div>
+                      </div>
+
+                      {isUnauthorizedDomainError && (
+                        <div className="bg-white border border-red-100 rounded-lg p-3.5 space-y-3.5 text-xs text-slate-700 shadow-xs">
+                          <div className="font-bold text-red-900 border-b border-red-100 pb-1.5 flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
+                            <span>💡 วิธีแก้ไขด่วนสำหรับโดเมน Vercel / โดเมนส่วนตัว (ทำเพียงครั้งเดียว):</span>
+                          </div>
+                          <p className="text-slate-600 leading-relaxed font-medium">
+                            เนื่องจากคุณเปิดเว็บแอปจากโดเมน <span className="underline decoration-blue-500 decoration-2 font-bold font-mono text-blue-600">{hostname || 'Vercel'}</span> ตัวเบราว์เซอร์จะปฏิเสธการเชื่อมต่อหากระบบ Firebase ยังไม่ได้รับการอนุญาตโดเมนนี้ค่ะ สามารถเพิ่มโดเมนได้ตามขั้นตอนนี้เลยค่ะ:
+                          </p>
+                          <ol className="list-decimal pl-5 space-y-2.5 text-slate-600 leading-relaxed">
+                            <li>
+                              เปิดไปที่ลิ้งค์ <strong><a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-700 underline font-black inline-flex items-center gap-0.5 bg-blue-50 px-1.5 py-0.5 rounded">Firebase Console <ExternalLink className="w-3.5 h-3.5 inline" /></a></strong> ด้วยเบราว์เซอร์ที่มีสิทธิ์โปรเจกต์ของคุณ
+                            </li>
+                            <li>
+                              กดเลือกโปรเจกต์ของคุณ ที่มีชื่อว่า: <strong className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-900">gen-lang-client-0486838165</strong>
+                            </li>
+                            <li>
+                              ที่แถบเมนูด้านซ้ายสุด ให้เลือกเมนูย่อย <strong>Build</strong> &gt; <strong>Authentication</strong> (การตรวจสอบสิทธิ์)
+                            </li>
+                            <li>
+                              คลิกแท็บ <strong>Settings (การตั้งค่า)</strong> ที่อยู่บริเวณแถบด้านบนขวา
+                            </li>
+                            <li>
+                              ที่แถบด้านซ้ายสุดภายใต้แท็บตั้งค่า คลิกเมนูย่อย <strong>Authorized domains (โดเมนที่ได้รับอนุญาต)</strong>
+                            </li>
+                            <li>
+                              คลิกปุ่ม <strong>Add domain (เพิ่มโดเมน)</strong> จากนั้นกรอกชื่อโดเมนเว็บแอปของคุณด้านล่างนี้ลงไป:
+                              <div className="mt-1.5 flex items-center gap-2">
+                                <span className="bg-slate-100 border border-slate-200 text-slate-900 font-mono font-bold px-2.5 py-1 rounded-lg text-xs select-all shrink-0">
+                                  {hostname || 'your-app-domain.vercel.app'}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium">(คัดลอกส่วนนี้ไปวางได้เลยค่ะ)</span>
+                              </div>
+                            </li>
+                            <li>
+                              กดปุ่ม <strong>Add (เพิ่ม)</strong> เพื่อบันทึกรายการ
+                            </li>
+                            <li>
+                              กลับมายังหน้าเว็บนี้ แล้วกดปุ่ม <strong>Sign in with Google</strong> เพื่อล็อกอินใหม่อีกครั้งได้ทันทีเลยค่ะ! 🎉
+                            </li>
+                          </ol>
+                        </div>
+                      )}
+
+                      {isPopupBlockedError && (
+                        <div className="bg-white border border-red-100 rounded-lg p-3 text-xs text-slate-700">
+                          <p className="font-bold text-red-900 mb-1">💡 วิธีแก้ปัญหาป๊อปอัปถูกบล็อก:</p>
+                          <p className="leading-relaxed">
+                            เนื่องจากบางเบราว์เซอร์บล็อกป๊อปอัปอัตโนมัติ กรุณาสังเกตไอคอนรูปกากบาทหรือหน้าต่างถูกบล็อกบริเวณมุมขวาสุดของแถบที่อยู่เว็บ (Address Bar) แล้วคลิกเลือก <strong>"อนุญาตป๊อปอัปจากเว็บไซต์นี้เสมอ"</strong> จากนั้นลองกดลงชื่อเข้าใช้ใหม่อีกครั้งนะคะ
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-1">

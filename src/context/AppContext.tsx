@@ -233,6 +233,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = async (): Promise<boolean> => {
     try {
+      setConnectionError(null);
       const res = await googleSignIn();
       if (res) {
         setGoogleUser(res.user);
@@ -243,7 +244,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return false;
     } catch (err: any) {
       console.error('Google Sign In error:', err);
-      setConnectionError(err.message || 'การลงชื่อเข้าใช้ Google ไม่สำเร็จ');
+      let errMsg = err.message || '';
+      const errCode = err.code || '';
+      
+      if (errCode === 'auth/unauthorized-domain' || errMsg.includes('unauthorized-domain') || errMsg.includes('unauthorized domain')) {
+        errMsg = 'auth/unauthorized-domain: โดเมนที่ใช้งานอยู่ยังไม่ได้รับการเพิ่มในระบบความปลอดภัย (Authorized Domains) ของ Firebase ค่ะ';
+      } else if (errCode === 'auth/popup-blocked' || errMsg.includes('popup-blocked')) {
+        errMsg = 'auth/popup-blocked: เบราว์เซอร์ของคุณบล็อกหน้าต่างลงชื่อเข้าใช้ กรุณาอนุญาตป๊อปอัปแล้วลองใหม่อีกครั้งนะคะ';
+      } else if (errCode === 'auth/popup-closed-by-user' || errMsg.includes('popup-closed-by-user') || errMsg.includes('popup closed')) {
+        errMsg = 'auth/popup-closed-by-user: หน้าต่างลงชื่อเข้าใช้ถูกปิดก่อนทำรายการเสร็จสิ้นค่ะ';
+      } else if (errCode === 'auth/operation-not-allowed' || errMsg.includes('operation-not-allowed')) {
+        errMsg = 'auth/operation-not-allowed: ยังไม่ได้เปิดใช้งาน Google Sign-In ในระบบ Firebase Console ค่ะ';
+      }
+      
+      setConnectionError(errMsg || 'การลงชื่อเข้าใช้ Google ไม่สำเร็จ');
       return false;
     }
   };

@@ -79,34 +79,79 @@ function AppContent() {
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6 space-y-6">
         
-        {/* Dynamic connection error banner to gracefully handle Google Sheets 404 errors */}
-        {connectionError && (
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-xs animate-fadeIn">
-            <div className="flex items-start space-x-3 text-red-800">
-              <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="font-extrabold text-sm text-red-900">ตรวจพบปัญหากับการเชื่อมต่อ Google Sheets (HTTP Error หรือ API ขัดข้อง)</h4>
-                <p className="text-xs text-red-700 mt-1 leading-relaxed font-medium">
-                  สเปรดชีตตอบกลับด้วยข้อผิดพลาด: <span className="font-mono bg-red-100/80 px-1 py-0.5 rounded text-red-900 font-bold">{connectionError}</span> • เพื่อความปลอดภัย ระบบได้สลับไปรันในโหมดออฟไลน์ (Local) เพื่อไม่ให้ข้อมูลของคุณสูญหายชั่วคราวเรียบร้อยแล้วค่ะ
-                </p>
+        {/* Dynamic connection error banner to gracefully handle Google Sheets or Firebase errors */}
+        {connectionError && (() => {
+          const isUnauthorizedDomain = connectionError.includes('unauthorized-domain');
+          const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
+          
+          if (isUnauthorizedDomain) {
+            return (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-4 shadow-sm animate-fadeIn">
+                <div className="flex items-start space-x-3 text-amber-900">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-extrabold text-sm sm:text-base text-amber-950">
+                      ⚠️ ต้องเพิ่มโดเมน {currentHostname} ที่ Firebase Console ก่อนเริ่มลงชื่อเข้าใช้ค่ะ
+                    </h4>
+                    <p className="text-xs text-amber-800 leading-relaxed mt-1 font-medium">
+                      ข้อขัดข้อง <span className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-950 font-bold">auth/unauthorized-domain</span> เกิดจากคุณเปิดใช้แอปบนโดเมนใหม่ <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold text-amber-950">{currentHostname}</code> (เช่น บน Vercel) แต่โครงการ Firebase ของคุณยังไม่ได้เปิดรับอนุญาตชื่อโดเมนนี้ค่ะ
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-amber-200 rounded-xl p-4 text-xs text-slate-700 space-y-2 leading-relaxed">
+                  <span className="font-extrabold text-amber-850 block mb-1">🛠️ วิธีแก้ไขง่ายๆ ใน 2 นาที:</span>
+                  <ol className="list-decimal pl-5 space-y-2 font-medium">
+                    <li>เปิดไปที่ <strong><a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-800 underline">Firebase Console (คลิกเพื่อเปิด)</a></strong> แล้วเลือกโครงการของคุณ <strong>(ID: gen-lang-client-0486838165)</strong></li>
+                    <li>ที่แถบเมนูด้านซ้าย คลิกเลือกเมนู <strong>Authentication (การตรวจสอบสิทธิ์)</strong></li>
+                    <li>คลิกแท็บ <strong>Settings (การตั้งค่า)</strong> ด้านบน (ข้างๆ แท็บ Users)</li>
+                    <li>ที่เมนูด้านซ้าย เลือกเมนูย่อย <strong>Authorized domains (โดเมนที่ได้รับอนุญาต)</strong></li>
+                    <li>คลิกปุ่ม <strong>Add domain (เพิ่มโดเมน)</strong> &gt; พิมพ์หรือวางคำว่า <code className="bg-slate-100 px-1 py-0.5 rounded font-mono font-bold text-blue-700">{currentHostname}</code> &gt; กดปุ่ม <strong>Add (เพิ่ม)</strong></li>
+                    <li>กลับมาที่หน้านี้แล้วลองคลิกปุ่ม <strong>"Sign in with Google"</strong> อีกครั้งเพื่อเชื่อมต่อ Google Sheet ทันทีค่ะ!</li>
+                  </ol>
+                </div>
+
+                <div className="flex gap-2 justify-end pt-1">
+                  <button
+                    onClick={() => setConnectionError(null)}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+                  >
+                    ปิดแจ้งเตือนนี้
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          // Otherwise, render the generic connection error box
+          return (
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-xs animate-fadeIn">
+              <div className="flex items-start space-x-3 text-red-800">
+                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-extrabold text-sm text-red-900">ตรวจพบปัญหากับการเชื่อมต่อ Google Sheets (HTTP Error หรือ API ขัดข้อง)</h4>
+                  <p className="text-xs text-red-700 mt-1 leading-relaxed font-medium">
+                    สเปรดชีตตอบกลับด้วยข้อผิดพลาด: <span className="font-mono bg-red-100/80 px-1 py-0.5 rounded text-red-900 font-bold">{connectionError}</span> • เพื่อความปลอดภัย ระบบได้สลับไปรันในโหมดออฟไลน์ (Local) เพื่อไม่ให้ข้อมูลของคุณสูญหายชั่วคราวเรียบร้อยแล้วค่ะ
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0 w-full sm:w-auto mt-2 sm:mt-0">
+                <button
+                  onClick={() => setActiveTab('setup')}
+                  className="w-full sm:w-auto px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition shadow-xs cursor-pointer"
+                >
+                  แก้ไขการตั้งค่า API
+                </button>
+                <button
+                  onClick={() => setConnectionError(null)}
+                  className="w-full sm:w-auto px-3 py-2 border border-red-200 hover:bg-red-100 text-red-800 font-bold rounded-xl text-xs transition cursor-pointer"
+                >
+                  ละเว้น
+                </button>
               </div>
             </div>
-            <div className="flex gap-2 shrink-0 w-full sm:w-auto mt-2 sm:mt-0">
-              <button
-                onClick={() => setActiveTab('setup')}
-                className="w-full sm:w-auto px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition shadow-xs cursor-pointer"
-              >
-                แก้ไขการตั้งค่า API
-              </button>
-              <button
-                onClick={() => setConnectionError(null)}
-                className="w-full sm:w-auto px-3 py-2 border border-red-200 hover:bg-red-100 text-red-800 font-bold rounded-xl text-xs transition cursor-pointer"
-              >
-                ละเว้น
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Navigation Tabs Bar */}
         <div className="bg-white border border-slate-200 p-2 rounded-2xl shadow-xs flex flex-wrap gap-1">
