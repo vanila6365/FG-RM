@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { RawMaterialReceiving } from '../types';
 import { Truck, Search, Plus, Trash2, Edit2, AlertCircle, Save, CheckCircle } from 'lucide-react';
-import { formatDateBE, sortNewestFirst } from '../utils';
+import { formatDateBE, sortNewestFirst, toISODate } from '../utils';
 
 export function RawMaterialReceivingView() {
   const { 
@@ -287,7 +287,7 @@ export function RawMaterialReceivingView() {
             <input 
               type="date" 
               required
-              value={editingRecord.date} 
+              value={toISODate(editingRecord.date)} 
               onChange={(e) => setEditingRecord({ ...editingRecord, date: e.target.value })}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl bg-white" 
             />
@@ -443,7 +443,7 @@ export function RawMaterialReceivingView() {
                   <tr 
                     key={`${r.id || 'rmr'}-${idx}`} 
                     onClick={() => {
-                      setEditingRecord(r);
+                      setEditingRecord({ ...r, date: toISODate(r.date) });
                       setShowForm(false);
                     }}
                     className="hover:bg-amber-50/30 cursor-pointer transition-colors group"
@@ -473,7 +473,7 @@ export function RawMaterialReceivingView() {
                       <div className="inline-flex space-x-1">
                         <button
                           onClick={() => {
-                            setEditingRecord(r);
+                            setEditingRecord({ ...r, date: toISODate(r.date) });
                             setShowForm(false);
                           }}
                           className="p-1 rounded bg-slate-50 text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition"

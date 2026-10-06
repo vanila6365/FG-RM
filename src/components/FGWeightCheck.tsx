@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { FGWeightCheck } from '../types';
 import { Scale, Search, Plus, Trash2, Edit2, AlertCircle, Save, CheckCircle2, ChevronRight, XCircle, Upload, Download, RefreshCw, Database, Clock } from 'lucide-react';
-import { formatDateBE, sortNewestFirst } from '../utils';
+import { formatDateBE, sortNewestFirst, toISODate } from '../utils';
 
 export function FGWeightCheckView() {
   const { 
@@ -286,7 +286,7 @@ export function FGWeightCheckView() {
   };
 
   const startEdit = (rec: FGWeightCheck) => {
-    setEditingRecord(rec);
+    setEditingRecord({ ...rec, date: toISODate(rec.date) });
     setEditSampleInputs(rec.samples && rec.samples.length > 0 ? rec.samples.map(String) : ['', '', '', '']);
     setContainerType(rec.containerType || 'กล่อง');
     setManualStatus(rec.status === 'Pending' ? null : rec.status);
@@ -755,7 +755,7 @@ export function FGWeightCheckView() {
                   <input 
                     type="date" 
                     required
-                    value={editingRecord.date} 
+                    value={toISODate(editingRecord.date)} 
                     onChange={(e) => setEditingRecord({ ...editingRecord, date: e.target.value })}
                     className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-xl bg-white focus:outline-none" 
                   />

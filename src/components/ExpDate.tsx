@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ExpDateRecord } from '../types';
 import { CalendarRange, Search, Plus, Trash2, Edit2, AlertCircle, Save, CheckCircle } from 'lucide-react';
-import { formatDateBE, sortNewestFirst } from '../utils';
+import { formatDateBE, sortNewestFirst, toISODate } from '../utils';
 
 export function ExpDateView() {
   const { 
@@ -267,7 +267,7 @@ export function ExpDateView() {
             <input 
               type="date" 
               required
-              value={editingRecord.mfgDate} 
+              value={toISODate(editingRecord.mfgDate)} 
               onChange={(e) => setEditingRecord({ ...editingRecord, mfgDate: e.target.value })}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl bg-white" 
             />
@@ -278,7 +278,7 @@ export function ExpDateView() {
             <input 
               type="date" 
               required
-              value={editingRecord.expDate} 
+              value={toISODate(editingRecord.expDate)} 
               onChange={(e) => setEditingRecord({ ...editingRecord, expDate: e.target.value })}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl bg-white font-bold text-red-600" 
             />
@@ -358,7 +358,12 @@ export function ExpDateView() {
                     <tr 
                       key={`${r.id || 'exp'}-${idx}`} 
                       onClick={() => {
-                        setEditingRecord(r);
+                        setEditingRecord({ 
+                          ...r, 
+                          date: toISODate(r.date),
+                          mfgDate: toISODate(r.mfgDate),
+                          expDate: toISODate(r.expDate)
+                        });
                         setShowForm(false);
                       }}
                       className="hover:bg-amber-50/30 cursor-pointer transition-colors group"
@@ -400,7 +405,12 @@ export function ExpDateView() {
                         <div className="inline-flex space-x-1">
                           <button
                             onClick={() => {
-                              setEditingRecord(r);
+                              setEditingRecord({ 
+                                ...r, 
+                                date: toISODate(r.date),
+                                mfgDate: toISODate(r.mfgDate),
+                                expDate: toISODate(r.expDate)
+                              });
                               setShowForm(false);
                             }}
                             className="p-1 rounded bg-slate-50 text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition"

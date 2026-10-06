@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { RMWeightCheck } from '../types';
 import { Scale, Search, Plus, Trash2, Edit2, AlertCircle, Save, CheckCircle2, XCircle, Database } from 'lucide-react';
-import { formatDateBE, sortNewestFirst } from '../utils';
+import { formatDateBE, sortNewestFirst, toISODate } from '../utils';
 
 export function RMWeightCheckView() {
   const { 
@@ -140,7 +140,7 @@ export function RMWeightCheckView() {
   };
 
   const startEdit = (rec: RMWeightCheck) => {
-    setEditingRecord(rec);
+    setEditingRecord({ ...rec, date: toISODate(rec.date) });
     setEditSampleInputs(rec.samples.map(String));
     setContainerType(rec.containerType || 'กล่อง');
     setManualStatus(rec.status === 'Pending' ? null : rec.status);
@@ -513,7 +513,7 @@ export function RMWeightCheckView() {
                   <input 
                     type="date" 
                     required
-                    value={editingRecord.date} 
+                    value={toISODate(editingRecord.date)} 
                     onChange={(e) => setEditingRecord({ ...editingRecord, date: e.target.value })}
                     className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-xl bg-white focus:outline-none" 
                   />

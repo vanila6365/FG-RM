@@ -62,7 +62,7 @@ export function formatDateBE(dateStr: string | null | undefined): string {
  * Helper to normalize any date string (BE DD/MM/YYYY, ISO YYYY-MM-DD, or native Date)
  * into a comparable standard Gregorian YYYY-MM-DD string.
  */
-function toISODate(dateStr: string | null | undefined): string {
+export function toISODate(dateStr: string | null | undefined): string {
   if (!dateStr) return '0000-00-00';
   const cleanStr = String(dateStr).trim();
 
