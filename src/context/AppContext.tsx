@@ -206,17 +206,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    // 2. Load stored connection configuration
-    const storedSheetId = getStoredSpreadsheetId();
+    // 2. Load stored connection configuration & Self-heal direct sheet settings
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('google_direct_spreadsheet_id');
+    }
+    
     const storedAppsUrl = getAppsScriptUrl();
-
-    setGoogleSpreadsheetIdState(storedSheetId);
     setUrlState(storedAppsUrl);
+    setGoogleSpreadsheetIdState('');
 
-    if (storedSheetId) {
-      setConnectionType('direct');
-      setIsConnected(true);
-    } else if (storedAppsUrl) {
+    if (storedAppsUrl) {
       setConnectionType('appscript');
       setIsConnected(true);
     } else {
@@ -226,8 +225,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     refreshData();
 
+    // Set up Auto background polling to sync all the time ("ซิงค์ตลอดเวลา")
+    // Refreshes data automatically in the background every 10 seconds!
+    const pollingInterval = setInterval(() => {
+      const url = getAppsScriptUrl();
+      if (url) {
+        refreshDataBackground();
+      }
+    }, 10000); // 10 seconds
+
     return () => {
       if (unsubscribeAuth) unsubscribeAuth();
+      clearInterval(pollingInterval);
     };
   }, []);
 
@@ -406,6 +415,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const refreshDataBackground = async () => {
+    try {
+      const data = await fetchAllData();
+      if (data) {
+        setPackagingRecords(data.packaging);
+        setFgWeightRecords(data.fgWeight);
+        setRmReceivingRecords(data.rmReceiving);
+        setRMWeightRecords(data.rmWeight);
+        setExpDateRecords(data.expDate);
+        setMasterData(getMergedMasterData(data.masterData));
+      }
+    } catch (e) {
+      console.warn('[Auto-Sync] Background polling failed:', e);
     }
   };
 

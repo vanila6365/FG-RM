@@ -44,13 +44,12 @@ export function clearAppsScriptUrl() {
   }
 }
 
-// Check if Apps Script or Direct Google Sheets is connected
+// Check if Apps Script is connected (Direct Sheets is deprecated to allow anonymous access)
 export function isConnectedToSheets(): boolean {
-  return !!getStoredSpreadsheetId() || !!getAppsScriptUrl();
+  return !!getAppsScriptUrl();
 }
 
 export function getConnectionType(): 'direct' | 'appscript' | 'local' {
-  if (getStoredSpreadsheetId()) return 'direct';
   if (getAppsScriptUrl()) return 'appscript';
   return 'local';
 }
@@ -274,41 +273,7 @@ async function smartFetch(url: string, options?: { method?: string; body?: strin
 
 // Load All Data from Google Sheets API, Apps Script Web App, or Fallback Local Storage
 export async function fetchAllData(): Promise<FetchResult> {
-  const directSheetId = getStoredSpreadsheetId();
-
-  // 1. Direct Google Sheets API mode
-  if (directSheetId) {
-    try {
-      const result = await fetchAllFromGoogleSheets(directSheetId);
-      const sanitizedPackaging = sanitizeRecords<PackagingInspection>(result.packaging || [], 'pkg');
-      const sanitizedFgWeight = sanitizeRecords<FGWeightCheck>(result.fgWeight || [], 'fgw');
-      const sanitizedRmReceiving = sanitizeRecords<RawMaterialReceiving>(result.rmReceiving || [], 'rmr');
-      const sanitizedRmWeight = sanitizeRecords<RMWeightCheck>(result.rmWeight || [], 'rmw');
-      const sanitizedExpDate = sanitizeRecords<ExpDateRecord>(result.expDate || [], 'exp');
-
-      // Cache locally
-      saveLocal(KEYS.PACKAGING, sanitizedPackaging);
-      saveLocal(KEYS.FG_WEIGHT, sanitizedFgWeight);
-      saveLocal(KEYS.RM_RECEIVING, sanitizedRmReceiving);
-      saveLocal(KEYS.RM_WEIGHT, sanitizedRmWeight);
-      saveLocal(KEYS.EXP_DATE, sanitizedExpDate);
-      saveLocal(KEYS.MASTER_DATA, result.masterData || INITIAL_MASTER_DATA);
-
-      return {
-        packaging: sanitizedPackaging,
-        fgWeight: sanitizedFgWeight,
-        rmReceiving: sanitizedRmReceiving,
-        rmWeight: sanitizedRmWeight,
-        expDate: sanitizedExpDate,
-        masterData: result.masterData || INITIAL_MASTER_DATA
-      };
-    } catch (error: any) {
-      console.warn('Direct Google Sheets loading failed. Falling back to local storage cache.', error);
-      throw error;
-    }
-  }
-
-  // 2. Apps Script Web App mode
+  // 1. Apps Script Web App mode
   const url = getAppsScriptUrl();
   if (url) {
     try {
@@ -378,6 +343,40 @@ export async function fetchAllData(): Promise<FetchResult> {
     }
   }
 
+  const directSheetId = getStoredSpreadsheetId();
+
+  // 2. Direct Google Sheets API mode
+  if (directSheetId) {
+    try {
+      const result = await fetchAllFromGoogleSheets(directSheetId);
+      const sanitizedPackaging = sanitizeRecords<PackagingInspection>(result.packaging || [], 'pkg');
+      const sanitizedFgWeight = sanitizeRecords<FGWeightCheck>(result.fgWeight || [], 'fgw');
+      const sanitizedRmReceiving = sanitizeRecords<RawMaterialReceiving>(result.rmReceiving || [], 'rmr');
+      const sanitizedRmWeight = sanitizeRecords<RMWeightCheck>(result.rmWeight || [], 'rmw');
+      const sanitizedExpDate = sanitizeRecords<ExpDateRecord>(result.expDate || [], 'exp');
+
+      // Cache locally
+      saveLocal(KEYS.PACKAGING, sanitizedPackaging);
+      saveLocal(KEYS.FG_WEIGHT, sanitizedFgWeight);
+      saveLocal(KEYS.RM_RECEIVING, sanitizedRmReceiving);
+      saveLocal(KEYS.RM_WEIGHT, sanitizedRmWeight);
+      saveLocal(KEYS.EXP_DATE, sanitizedExpDate);
+      saveLocal(KEYS.MASTER_DATA, result.masterData || INITIAL_MASTER_DATA);
+
+      return {
+        packaging: sanitizedPackaging,
+        fgWeight: sanitizedFgWeight,
+        rmReceiving: sanitizedRmReceiving,
+        rmWeight: sanitizedRmWeight,
+        expDate: sanitizedExpDate,
+        masterData: result.masterData || INITIAL_MASTER_DATA
+      };
+    } catch (error: any) {
+      console.warn('Direct Google Sheets loading failed. Falling back to local storage cache.', error);
+      throw error;
+    }
+  }
+
   // 3. Fallback to local storage
   initLocalData();
   return {
@@ -396,9 +395,46 @@ export async function writeRecord(
   sheetName: 'Packaging_Inspection' | 'FG_Weight_Check' | 'Raw_Material_Receiving' | 'RM_Weight_Check' | 'Exp_Date',
   data: any
 ): Promise<{ success: boolean; message: string; masterData?: MasterData }> {
+  // 1. Apps Script mode
+  const url = getAppsScriptUrl();
+  if (url) {
+    try {
+      const result = await smartFetch(url, {
+        method: 'POST',
+        body: JSON.stringify({ action, sheetName, data })
+      });
+      if (result.success) {
+        return { 
+          success: true, 
+          message: result.message || 'Operation successful',
+          masterData: result.masterData 
+        };
+      } else {
+        // Self-healing client side: if update fails because the record was not found, auto-convert to 'create'
+        if (action === 'update' && result.message && result.message.toLowerCase().includes('not found')) {
+          console.warn(`Record not found for update in sheet ${sheetName}. Auto-converting to create...`);
+          return writeRecord('create', sheetName, data);
+        }
+        // Self-healing client side: if delete fails because the record was not found, it's already deleted
+        if (action === 'delete' && result.message && result.message.toLowerCase().includes('not found')) {
+          console.warn(`Record already deleted or not found in sheet ${sheetName}. Success.`);
+          return { 
+            success: true, 
+            message: 'Record already deleted or not found in sheet',
+            masterData: result.masterData 
+          };
+        }
+        throw new Error(result.message || 'Operation failed');
+      }
+    } catch (error: any) {
+      console.error('Google Sheets write failed. Storing in local storage fallback.', error);
+      return { success: false, message: 'Google Sheets sync failed: ' + error.message };
+    }
+  }
+
   const directSheetId = getStoredSpreadsheetId();
 
-  // 1. Direct Google Sheets API mode
+  // 2. Direct Google Sheets API mode
   if (directSheetId) {
     try {
       const res = await writeToGoogleSheets(directSheetId, action, sheetName, data);
@@ -435,43 +471,6 @@ export async function writeRecord(
     } catch (error: any) {
       console.error('Direct Google Sheets write failed. Fallback to local storage.', error);
       // Fallback save to local so user doesn't lose work
-      return { success: false, message: 'Google Sheets sync failed: ' + error.message };
-    }
-  }
-
-  // 2. Apps Script mode
-  const url = getAppsScriptUrl();
-  if (url) {
-    try {
-      const result = await smartFetch(url, {
-        method: 'POST',
-        body: JSON.stringify({ action, sheetName, data })
-      });
-      if (result.success) {
-        return { 
-          success: true, 
-          message: result.message || 'Operation successful',
-          masterData: result.masterData 
-        };
-      } else {
-        // Self-healing client side: if update fails because the record was not found, auto-convert to 'create'
-        if (action === 'update' && result.message && result.message.toLowerCase().includes('not found')) {
-          console.warn(`Record not found for update in sheet ${sheetName}. Auto-converting to create...`);
-          return writeRecord('create', sheetName, data);
-        }
-        // Self-healing client side: if delete fails because the record was not found, it's already deleted
-        if (action === 'delete' && result.message && result.message.toLowerCase().includes('not found')) {
-          console.warn(`Record already deleted or not found in sheet ${sheetName}. Success.`);
-          return { 
-            success: true, 
-            message: 'Record already deleted or not found in sheet',
-            masterData: result.masterData 
-          };
-        }
-        throw new Error(result.message || 'Operation failed');
-      }
-    } catch (error: any) {
-      console.error('Google Sheets write failed. Storing in local storage fallback.', error);
       return { success: false, message: 'Google Sheets sync failed: ' + error.message };
     }
   }

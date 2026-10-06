@@ -404,11 +404,13 @@ function updateAndExtractMasterData(ss) {
   if (pkgSheet) {
     var pkgData = getSheetRecords(pkgSheet);
     pkgData.forEach(function(r) {
-      if (r.customer && customers.indexOf(r.customer.trim()) === -1) {
-        customers.push(r.customer.trim());
+      if (r.customer) {
+        var custStr = String(r.customer).trim();
+        if (custStr && customers.indexOf(custStr) === -1) customers.push(custStr);
       }
-      if (r.fgCode && fgCodes.indexOf(r.fgCode.trim()) === -1) {
-        fgCodes.push(r.fgCode.trim());
+      if (r.fgCode) {
+        var fgStr = String(r.fgCode).trim();
+        if (fgStr && fgCodes.indexOf(fgStr) === -1) fgCodes.push(fgStr);
       }
     });
   }
@@ -417,8 +419,9 @@ function updateAndExtractMasterData(ss) {
   if (fgWSheet) {
     var fgWData = getSheetRecords(fgWSheet);
     fgWData.forEach(function(r) {
-      if (r.fgCode && fgCodes.indexOf(r.fgCode.trim()) === -1) {
-        fgCodes.push(r.fgCode.trim());
+      if (r.fgCode) {
+        var fgStr = String(r.fgCode).trim();
+        if (fgStr && fgCodes.indexOf(fgStr) === -1) fgCodes.push(fgStr);
       }
     });
   }
@@ -427,11 +430,13 @@ function updateAndExtractMasterData(ss) {
   if (rmSheet) {
     var rmData = getSheetRecords(rmSheet);
     rmData.forEach(function(r) {
-      if (r.rmCode && rmCodes.indexOf(r.rmCode.trim()) === -1) {
-        rmCodes.push(r.rmCode.trim());
+      if (r.rmCode) {
+        var rmStr = String(r.rmCode).trim();
+        if (rmStr && rmCodes.indexOf(rmStr) === -1) rmCodes.push(rmStr);
       }
-      if (r.supplier && suppliers.indexOf(r.supplier.trim()) === -1) {
-        suppliers.push(r.supplier.trim());
+      if (r.supplier) {
+        var supStr = String(r.supplier).trim();
+        if (supStr && suppliers.indexOf(supStr) === -1) suppliers.push(supStr);
       }
     });
   }
@@ -440,8 +445,9 @@ function updateAndExtractMasterData(ss) {
   if (rmWSheet) {
     var rmWData = getSheetRecords(rmWSheet);
     rmWData.forEach(function(r) {
-      if (r.rmCode && rmCodes.indexOf(r.rmCode.trim()) === -1) {
-        rmCodes.push(r.rmCode.trim());
+      if (r.rmCode) {
+        var rmStr = String(r.rmCode).trim();
+        if (rmStr && rmCodes.indexOf(rmStr) === -1) rmCodes.push(rmStr);
       }
     });
   }
@@ -450,8 +456,9 @@ function updateAndExtractMasterData(ss) {
   if (expSheet) {
     var expData = getSheetRecords(expSheet);
     expData.forEach(function(r) {
-      if (r.rmCode && rmCodes.indexOf(r.rmCode.trim()) === -1) {
-        rmCodes.push(r.rmCode.trim());
+      if (r.rmCode) {
+        var rmStr = String(r.rmCode).trim();
+        if (rmStr && rmCodes.indexOf(rmStr) === -1) rmCodes.push(rmStr);
       }
     });
   }
